@@ -126,8 +126,6 @@ The environment variable `DISABLE_TELEMETRY` can be set to `true` to opt-out of 
 
 Issues and pull requests are welcome! For development details, see the [contributing](CONTRIBUTING.md) guide. For major changes, including interface changes, please open an issue first to discuss what you would like to change. [Join our community Slack channel](https://www.infracost.io/community-chat), we are a friendly bunch and happy to help you get started :)
 
-We're also [hiring](https://www.infracost.io/join-the-team).
-
 ## License
 
 [Apache License 2.0](https://choosealicense.com/licenses/apache-2.0/)
