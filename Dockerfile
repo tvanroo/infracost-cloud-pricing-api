@@ -13,7 +13,7 @@ FROM node:14.15.0-alpine3.12 as release
 RUN apk add --no-cache bash curl postgresql-client
 
 WORKDIR /usr/src/app
-RUN mkdir data
+RUN mkdir -p data/products
 
 RUN addgroup -g 1001 -S infracost && \
   adduser -u 1001 -S infracost -G infracost && \
