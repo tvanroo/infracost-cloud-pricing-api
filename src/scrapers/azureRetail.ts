@@ -130,7 +130,7 @@ function parseProduct(productJson: ProductJson): Product {
     attributes: {
       effectiveStartDate: productJson.effectiveStartDate,
       productId: productJson.productId,
-      productName: productJson.productName,
+      productName: fixWhitespace(productJson.productName), // because Azure sometimes uses non-breaking spaces here :(
       serviceId: productJson.serviceId,
       serviceFamily: productJson.serviceFamily,
       skuName: productJson.skuName,
@@ -183,6 +183,10 @@ function parsePrices(product: Product, productJson: ProductJson): Price[] {
   prices.push(price);
 
   return prices;
+}
+
+function fixWhitespace(str: string): string {
+  return str.replace(/\u00A0/g, ' ');
 }
 
 export default {
