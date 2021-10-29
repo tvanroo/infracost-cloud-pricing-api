@@ -173,11 +173,11 @@ const currencyFallbacks: { [from: string]: { [to: string]: number } } = {
     XPF: 101.846424,
     YER: 249.769237,
     ZAR: 14.907877,
-    ZMW: 19.129442
-  }
+    ZMW: 19.129442,
+  },
 };
 
-export const CURRENCY_CODES = Object.keys(currencyFallbacks.USD)
+export const CURRENCY_CODES = Object.keys(currencyFallbacks.USD);
 
 async function convert(
   from: string,
