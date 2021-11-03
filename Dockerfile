@@ -1,4 +1,4 @@
-FROM node:14.15.0-alpine3.12 as build
+FROM node:16.13-alpine3.12 as build
 
 WORKDIR /usr/src/app
 COPY package*.json ./
@@ -8,7 +8,7 @@ RUN npm install --production \
 COPY . .
 RUN npm run build
 
-FROM node:14.15.0-alpine3.12 as release
+FROM node:16.13-alpine3.12 as release
 
 RUN apk add --no-cache bash curl postgresql-client
 
