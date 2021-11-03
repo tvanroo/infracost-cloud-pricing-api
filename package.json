@@ -70,7 +70,7 @@
     "@babel/node": "^7.10.5",
     "@types/glob": "^7.2.0",
     "@types/lodash": "^4.14.161",
-    "@types/node": "^14.14.6",
+    "@types/node": "^16.11.6",
     "@types/pg": "^8.6.1",
     "@types/pg-copy-streams": "^1.2.1",
     "@types/pg-format": "^1.0.2",
