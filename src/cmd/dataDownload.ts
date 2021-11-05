@@ -55,39 +55,40 @@ async function run() {
     method: 'get',
     url: downloadUrl,
     responseType: 'stream',
-  }).then((resp) => {
-    return new Promise((resolve, reject) => {
-      const progressBar = new ProgressBar(
-        `-> downloading ${argv.out} [:bar] :percent (:etas remaining)`,
-        {
-          width: 40,
-          complete: '=',
-          incomplete: ' ',
-          renderThrottle: 500,
-          total: parseInt(resp.headers['content-length'], 10),
-        }
-      );
+  }).then(
+    (resp) =>
+      new Promise((resolve, reject) => {
+        const progressBar = new ProgressBar(
+          `-> downloading ${argv.out} [:bar] :percent (:etas remaining)`,
+          {
+            width: 40,
+            complete: '=',
+            incomplete: ' ',
+            renderThrottle: 500,
+            total: parseInt(resp.headers['content-length'], 10),
+          }
+        );
 
-      resp.data.on('data', (chunk: { length: number }) =>
-        progressBar.tick(chunk.length)
-      );
+        resp.data.on('data', (chunk: { length: number }) =>
+          progressBar.tick(chunk.length)
+        );
 
-      resp.data.pipe(writer);
+        resp.data.pipe(writer);
 
-      let error: Error | null = null;
-      writer.on('error', (err) => {
-        error = err;
-        writer.close();
-        reject(err);
-      });
+        let error: Error | null = null;
+        writer.on('error', (err) => {
+          error = err;
+          writer.close();
+          reject(err);
+        });
 
-      writer.on('close', () => {
-        if (!error) {
-          resolve(true);
-        }
-      });
-    });
-  });
+        writer.on('close', () => {
+          if (!error) {
+            resolve(true);
+          }
+        });
+      })
+  );
 }
 
 config.logger.info('Starting: downloading DB data');
