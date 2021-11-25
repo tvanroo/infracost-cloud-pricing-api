@@ -22,8 +22,6 @@ services:
       retries: 3
       start_period: 10s
     depends_on: [postgres]
-    volumes:
-      - ./data:/usr/src/app/data
     networks:
       - cloud_pricing_api
 
@@ -39,8 +37,6 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
     depends_on: [postgres]
-    volumes:
-      - ./data:/usr/src/app/data
     networks:
       - cloud_pricing_api
     command: ["npm", "run", "job:init"]
@@ -60,8 +56,6 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
     depends_on: [postgres]
-    volumes:
-      - ./data:/usr/src/app/data
     networks:
       - cloud_pricing_api
     command: ["npm", "run", "job:update"]
