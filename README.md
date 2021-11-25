@@ -54,6 +54,12 @@ See [our Helm Chart](https://github.com/infracost/helm-charts/tree/master/charts
 
 ### Docker compose
 
+#### Prerequisites
+
+* Docker Engine 17.09.0+
+
+#### Steps
+
 1. Clone the repo:
 
     ```sh
@@ -85,7 +91,9 @@ See [our Helm Chart](https://github.com/infracost/helm-charts/tree/master/charts
     SELF_HOSTED_INFRACOST_API_KEY=<API Key from Step 3>
     ```
 
-5. Run `docker-compose up`. This will create three containers: PostgreSQL DB, Cloud Pricing API, and an init container that loads the pricing data. The init container will take a few minutes and exit after the Docker compose logs show `init_job_1: Completed: downloading DB data`.
+5. Run `docker-compose run init_job`. This will start a PostgreSQL DB container and an init container that loads the pricing data. The init container will take a few minutes and exit after the Docker compose logs show `Completed: loading data into DB`.
+
+6. Run `docker-compose up api`. This will start the Cloud Pricing API.
 
 6. Prices can be kept up-to-date by running the update job once a week, for example from cron:
 

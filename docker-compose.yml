@@ -1,4 +1,4 @@
-version: '3'
+version: '3.4'
 
 services:
   api:
@@ -44,7 +44,6 @@ services:
   # Cron: Add a cron job to run every week to update the database data. The cron entry should look something like:
   # 0 4 * * SUN docker-compose run --rm update_job npm run job:update >> /var/log/cron.log 2>&1
   update_job:
-    profiles: ["update_job"]
     build:
       context: .
       dockerfile: Dockerfile
