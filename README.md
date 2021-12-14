@@ -130,9 +130,13 @@ To upgrade to the latest version, run `docker-compose pull` followed by `docker-
 
 The environment variable `DISABLE_TELEMETRY` can be set to `true` to opt-out of telemetry.
 
+### Using a self-signed certificate
+
+See [the Infracost docs](https://www.infracost.io/docs/cloud_pricing_api/self_hosted/#using-a-self-signed-certificate) for how to configure Infracost CLI to work with a self-hosted Cloud Pricing API that uses a self-signed certificate.
+
 ## Contributing
 
-Issues and pull requests are welcome! For development details, see the [contributing](CONTRIBUTING.md) guide. For major changes, including interface changes, please open an issue first to discuss what you would like to change. [Join our community Slack channel](https://www.infracost.io/community-chat), we are a friendly bunch and happy to help you get started :)
+Issues and pull requests are welcome! For development details, see the [contributing guide](CONTRIBUTING.md). For major changes, including interface changes, please open an issue first to discuss what you would like to change. [Join our community Slack channel](https://www.infracost.io/community-chat), we are a friendly bunch and happy to help you get started :)
 
 Our team is currently focused on supporting AWS, Azure and GCP so we prefer not to work on adding new cloud vendors at this time. Longer term, the Terraform provider model is making us wonder if we could move towards an architecture for the Cloud Pricing API where community-supported cloud vendors could also be added.
 
