@@ -58,7 +58,7 @@
     "pg-copy-streams": "^6.0.2",
     "pg-format": "^1.0.4",
     "pino": "^6.13.3",
-    "pino-http": "^6.0.0",
+    "pino-http": "^6.5.0",
     "pino-pretty": "^6.0.0",
     "prettier": "^2.1.1",
     "progress": "^2.0.3",
