@@ -92,7 +92,7 @@
 
 [@alikhajeh1](https://github.com/alikhajeh1) and [@aliscott](https://github.com/aliscott) rotate release responsibilities between them.
 
-1. In `package.json` update `version` and push to master.
+1. In `package.json` update `version`, run `npm install` and push to master.
 2. In the cloud-pricing-api repo, run `git tag vx.y.z && git push origin vx.y.z`
 3. Wait for the GH Actions to complete as that creates/pushes the docker tag.
 4. Goto https://github.com/infracost/cloud-pricing-api/compare and find the diff between the latest and the previous version so you can create a description for the GitHub Release.
