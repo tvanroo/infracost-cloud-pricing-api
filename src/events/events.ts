@@ -35,8 +35,8 @@ export async function forwardEvent(req: Request): Promise<void> {
 
   try {
     const headers: { [key: string]: any } = {
-      'X-Api-Key': config.infracostAPIKey,
-      'X-Cloud-Pricing-Api-Version': process.env.npm_package_version,
+      'X-Api-Key': config.infracostAPIKey || '',
+      'X-Cloud-Pricing-Api-Version': process.env.npm_package_version || '',
     };
 
     if (req.header('x-infracost-trace-id') != null) {
@@ -68,8 +68,8 @@ export async function sendEvent(event: string, env?: any): Promise<void> {
       },
       {
         headers: {
-          'X-Api-Key': config.infracostAPIKey,
-          'X-Cloud-Pricing-Api-Version': process.env.npm_package_version,
+          'X-Api-Key': config.infracostAPIKey || '',
+          'X-Cloud-Pricing-Api-Version': process.env.npm_package_version || '',
         },
       }
     );

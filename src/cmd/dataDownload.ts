@@ -28,8 +28,8 @@ async function run() {
       `${config.infracostPricingApiEndpoint}/data-download/latest`,
       {
         headers: {
-          'X-Api-Key': config.infracostAPIKey,
-          'X-Cloud-Pricing-Api-Version': process.env.npm_package_version,
+          'X-Api-Key': config.infracostAPIKey || '',
+          'X-Cloud-Pricing-Api-Version': process.env.npm_package_version || '',
         },
       }
     );
