@@ -138,7 +138,7 @@ See [the Infracost docs](https://www.infracost.io/docs/cloud_pricing_api/self_ho
 
 Issues and pull requests are welcome! For development details, see the [contributing guide](CONTRIBUTING.md). For major changes, including interface changes, please open an issue first to discuss what you would like to change. [Join our community Slack channel](https://www.infracost.io/community-chat), we are a friendly bunch and happy to help you get started :)
 
-Our team is currently focused on supporting AWS, Azure and GCP so we prefer not to work on adding new cloud vendors at this time. Longer term, the Terraform provider model is making us wonder if we could move towards an architecture for the Cloud Pricing API where community-supported cloud vendors could also be added.
+Our team is currently focused on supporting AWS, Azure and GCP so we prefer not to work on adding new cloud vendors at this time. Before we accept contributors for new cloud providers, we would like to move towards a provider model where community-supported cloud vendors could also be added (similar to Terraform providers). If you'd like to prototype the provider model, please let us know!
 
 ## License
 
