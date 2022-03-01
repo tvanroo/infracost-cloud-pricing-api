@@ -1,5 +1,5 @@
 import axios from 'axios';
-import {Request} from 'express';
+import { Request } from 'express';
 import _ from 'lodash';
 import config from '../config';
 
@@ -43,7 +43,7 @@ export async function forwardEvent(req: Request): Promise<void> {
       headers['x-infracost-trace-id'] = req.header('x-infracost-trace-id');
     }
 
-    await axios.post(`${(config.infracostDashboardApiEndpoint)}/event`, body, {
+    await axios.post(`${config.infracostDashboardApiEndpoint}/event`, body, {
       headers,
     });
   } catch (err) {

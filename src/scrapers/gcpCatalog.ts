@@ -145,7 +145,9 @@ async function downloadService(service: ServiceJson): Promise<void> {
 }
 
 function sleep(ms: number) {
-  return new Promise((resolve) => { setTimeout(resolve, ms) });
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 async function loadAll(): Promise<void> {
@@ -209,9 +211,9 @@ function parsePrices(product: Product, productJson: ProductJson): Price[] {
         priceHash: '',
         purchaseOption: productJson.category.usageType,
         unit: pricingJson.pricingExpression.usageUnitDescription,
-        USD: `${
-          tierJson.unitPrice.units
-        }.${tierJson.unitPrice.nanos.toString().padStart(9, '0')}`,
+        USD: `${tierJson.unitPrice.units}.${tierJson.unitPrice.nanos
+          .toString()
+          .padStart(9, '0')}`,
         effectiveDateStart: pricingJson.effectiveTime,
         startUsageAmount: tierJson.startUsageAmount.toString(),
         endUsageAmount: nextTierJson

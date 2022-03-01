@@ -1,8 +1,7 @@
 (() => {
   function fillEndpoint() {
-    document.getElementById(
-      'cloud-pricing-api-endpoint'
-    ).innerText = window.location.href.replace(/\/$/, '');
+    document.getElementById('cloud-pricing-api-endpoint').innerText =
+      window.location.href.replace(/\/$/, '');
   }
 
   function checkLatestVersion() {

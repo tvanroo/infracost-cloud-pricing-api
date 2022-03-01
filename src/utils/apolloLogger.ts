@@ -12,7 +12,7 @@ const DEFAULT_TRUNCATE_LENGTH = 4096;
 
 function truncate(str: string, l = DEFAULT_TRUNCATE_LENGTH): string {
   if (str == null) {
-    return ""
+    return '';
   }
 
   if (str.length <= l) {
@@ -34,12 +34,14 @@ export default class ApolloLogger implements ApolloServerPlugin {
       return {};
     }
 
-    let q = "";
+    let q = '';
     try {
-      q = prettier.format(requestContext.request.query || '', { parser: 'graphql' })
+      q = prettier.format(requestContext.request.query || '', {
+        parser: 'graphql',
+      });
     } catch (e) {
-      const el = truncate(requestContext.request.query || '')
-      logger.debug(`invalid query provided: ${el}`)
+      const el = truncate(requestContext.request.query || '');
+      logger.debug(`invalid query provided: ${el}`);
     }
 
     const query = truncate(q);
