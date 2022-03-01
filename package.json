@@ -78,7 +78,7 @@
     "@types/prettier": "^2.4.3",
     "@types/progress": "^2.0.5",
     "@types/tmp": "^0.2.1",
-    "@types/yargs": "^17.0.8",
+    "@types/yargs": "^15.0.7",
     "@typescript-eslint/eslint-plugin": "^5.5.0",
     "@typescript-eslint/parser": "^5.8.0",
     "copyfiles": "^2.4.1",
