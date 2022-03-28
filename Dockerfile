@@ -1,4 +1,4 @@
-FROM node:16.13-alpine3.12 as build
+FROM node:16.13-bullseye-slim as build
 
 WORKDIR /usr/src/app
 COPY package*.json ./
@@ -8,15 +8,15 @@ RUN npm install --production \
 COPY . .
 RUN npm run build
 
-FROM node:16.13-alpine3.12 as release
+FROM node:16.13-bullseye-slim as release
 
-RUN apk add --no-cache bash curl postgresql-client
+RUN apt-get update && apt-get install -y bash curl postgresql-client
 
 WORKDIR /usr/src/app
 RUN mkdir -p data/products
 
-RUN addgroup -g 1001 -S infracost && \
-  adduser -u 1001 -S infracost -G infracost && \
+RUN addgroup --gid 1001 --system infracost && \
+  adduser --uid 1001 --system --ingroup infracost infracost && \
   chown -R infracost:infracost /usr/src/app
 USER 1001
 
