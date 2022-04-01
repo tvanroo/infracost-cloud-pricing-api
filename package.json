@@ -39,7 +39,7 @@
     "@graphql-tools/schema": "^8.3.2",
     "@graphql-tools/utils": "^8.6.2",
     "apollo-server-core": "^3.4.1",
-    "apollo-server-express": "^3.6.3",
+    "apollo-server-express": "^3.6.7",
     "apollo-server-plugin-base": "^3.5.1",
     "async-mutex": "^0.3.2",
     "axios": "^0.26.0",
