@@ -12,6 +12,12 @@ export type Product = {
 };
 
 export type Price = {
+  startPrice?: number,
+  startQuantityTier?: number,
+  code?: string,
+  price?: number,
+  quantityTier?: number,
+  tierModel?: string,
   priceHash: string;
   purchaseOption: string;
   unit: string;
