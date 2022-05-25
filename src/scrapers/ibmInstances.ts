@@ -1,96 +1,85 @@
 
-import fs, { WriteStream } from 'fs';
+import fs from 'fs';
 import axios, { AxiosResponse } from 'axios';
 
 import { Product, Price } from '../db/types';
-// import { generateProductHash, generatePriceHash } from '../db/helpers';
+import { generateProductHash, generatePriceHash } from '../db/helpers';
 import { upsertProducts } from '../db/upsert';
 import config from '../config';
 
+// pricing api for IBM classic infrastructure
 const baseUrl = 'https://cloud.ibm.com/kubernetes/api';
 const filename = `data/ibm-instances.json`;
 const RETRY_DELAY_MS = 30000;
 const MAX_RETRIES = 3;
 const vendorName = 'ibm';
 const serviceId = 'containers-kubernetes';
+// any threshold of nine 9's will be taken to mean infinity and substituted with Inf
+const lastThresholdAmountPattern = /999999999/;
+const lastThresholdAmount = 'Inf';
 
-/**
- * Product Mapping:
- * DB:             | ibmProductJson:
- * --------------- | -----------------
- * productHash:    | md5(vendorName + flavor + region + operating_system + plan_id + country + currency);
- * sku:            | plan_id
- * vendorName:     | 'ibm'
- * region:         | region
- * service:        | 'containers-kubernetes'
- * productFamily:  | ''
- * attributes:     | IBM Attributes []
- * prices:         | Price[]
- */
+// https://cloud.ibm.com/docs/sell?topic=sell-meteringintera#pricing
+enum PricingModels {
+  LINEAR = 'Linear',
+  PRORATION = 'Proration',
+  GRANULAR_TIER = 'Granular Tier',
+  STEP_TIER = 'Step Tier',
+  BLOCK_TIER = 'Block Tier'
+};
 
-/** 
- * Price Mapping:
- * DB Price:           | ibmProductJson & ibmTiersJson:
- * ------------------- | -------------------------
- * priceHash:          | md5()
- * purchaseOption:     | ''
- * unit:               | unit
- * USD?:               | ibmTiersJson.price
- * CNY?:               | NOT USED
- * effectiveDateStart: | effective_from
- * effectiveDateEnd:   | effective_until
- * startUsageAmount:   | min_quantity || ''
- * endUsageAmount:     | max_quantity || ibmTiersJson.instance_hours
- * termLength:         | contract_duration || ''
- * termPurchaseOption  | NOT USED
- * termOfferingClass   | NOT USED
- * description         | NOT USED
- */
-
+// shape of JSON from pricing API
 type ibmProductJson = {
-  provider: string;
-  flavor: string;
-  region: string;
-  isolation: string;
-  operating_system: string;
-  contract_duration: string;
-  ocp_included: boolean;
-  catalog_region: string;
-  server_type: string;
-  min_quantity: number;
-  max_quantity: number;
-  deprecated: boolean;
   plan_id: string;
-  billing_type: string;
-  effective_from: string;
-  effective_until: string;
+  region: string | '';
+  flavor: string | '';
+  operating_system: string | '';
   unit: string;
   price: string;
-  tiers: ibmTiersJson[];
-  country: string;
+  country: string | '';
   currency: string;
+  tiers: ibmTiersJson[];
+  provider?: string;
+  isolation?: string;
+  contract_duration?: string;
+  ocp_included?: string;
+  flavor_class?: string;
+  catalog_region?: string;
+  server_type?: string;
+  min_quantity?: number;
+  max_quantity?: number;
+  deprecated?: string;
+  billing_type?: string;
+  effective_from?: string;
+  effective_until?: string;
 };
 
 type ibmTiersJson = {
   price: number;
-  instance_hours: number;
+  instance_hours?: number;
 };
 
+// schema for attributes of IBM products
 type ibmAttributes = {
-  provider: string;
-  flavor: string;
-  isolation: string;
-  operating_system: string;
-  ocp_included: boolean;
-  catalog_region: string;
-  server_type: string;
-  billing_type: string;
-  country: string;
   currency: string;
+  tierModel: PricingModels;
+  provider?: string;
+  flavor?: string;
+  isolation?: string;
+  operatingSystem?: string;
+  ocpIncluded?: string;
+  catalogRegion?: string;
+  serverType?: string;
+  billingType?: string;
+  country?: string;
+};
+
+type productGroupJson = {
+  [key: string]: ibmProductJson[];
 };
 
 async function scrape(): Promise<void> {
   await downloadAll();
+  await loadAll();
   
 }
 
@@ -101,7 +90,7 @@ function sleep(ms: number) {
 }
 
 async function downloadAll(): Promise<void> {
-  config.logger.info(`Downloading IBM VPC`);
+  config.logger.info(`Downloading IBM instances`);
 
   let resp: AxiosResponse | null = null;
   let success = false;
@@ -132,13 +121,15 @@ async function downloadAll(): Promise<void> {
     }
   } while (!success && attempts < MAX_RETRIES);
 
-  if (!resp) {
-    return;
-  }
-
   try {
     const writer = fs.createWriteStream(filename);
-    await writer.write(JSON.stringify(resp.data));
+    await new Promise((resolve, reject) => {
+      if (!resp) {
+        reject(new Error('empty response'));
+        return;
+      }
+      writer.write(JSON.stringify(resp.data), resolve);
+    })
     writer.close();
   
   } catch (writeErr) {
@@ -148,6 +139,162 @@ async function downloadAll(): Promise<void> {
   }
 }
 
+/**
+ * tiers from the pricing api don't specify a start usage amount (only an end amount);
+ * they are inferred based on the previous tier's end amount. this helper is used to populate
+ * an appropriate start amount threshold 
+ */
+function getStartUsageAmount(productJson: ibmProductJson, tierJson: ibmTiersJson, prevTierJson: ibmTiersJson): string {
+  if (productJson.min_quantity) return productJson.min_quantity.toString();
+  if (tierJson.instance_hours) {
+    if (prevTierJson?.instance_hours) return (prevTierJson.instance_hours).toString();
+    return '0';
+  }
+  return '';
+}
+
+/**
+ * for the last tier (in a multi-tier), set end threshold to 'Inf' instead of 9999999990 or 999999999
+ * @param productJson 
+ * @param tierJson 
+ * @param prevTierJson 
+ * @returns 
+ */
+ function getEndUsageAmount(productJson: ibmProductJson, tierJson: ibmTiersJson): string {
+  if (productJson.max_quantity) return productJson.max_quantity.toString();
+  if (tierJson.instance_hours) {
+    if (tierJson.instance_hours.toString().match(lastThresholdAmountPattern)) return lastThresholdAmount;
+    return tierJson.instance_hours.toString();
+  }
+  return '';
+}
+
+/** 
+ * Price Mapping:
+ * DB Price:           | ibmProductJson & ibmTiersJson:
+ * ------------------- | -------------------------
+ * priceHash:          | md5()
+ * purchaseOption:     | ''
+ * unit:               | unit
+ * USD?:               | ibmTiersJson.price
+ * CNY?:               | NOT USED
+ * effectiveDateStart: | effective_from
+ * effectiveDateEnd:   | effective_until
+ * startUsageAmount:   | min_quantity || ibmTiersJson.instance_hours || 0 || ''
+ * endUsageAmount:     | max_quantity || ibmTiersJson.instance_hours || 'Inf' || ''
+ * termLength:         | contract_duration || ''
+ * termPurchaseOption  | NOT USED
+ * termOfferingClass   | NOT USED
+ * description         | NOT USED
+ */
+function parsePrices(product: Product, productJson: ibmProductJson): Price[] {
+  const prices: Price[] = [];
+
+  const numTiers = productJson.tiers.length;
+  for (let i = 0; i < numTiers; i++) {
+    const tierJson = productJson.tiers[i]
+    const prevTierJson = (i-1 >= 0) ? productJson.tiers[i-1] : {price: 0};
+    const price: Price = {
+      priceHash: '',
+      purchaseOption: '',
+      unit: productJson.unit,
+      USD: tierJson.price?.toString(),
+      effectiveDateStart: productJson.effective_from || '',
+      effectiveDateEnd: productJson.effective_until || '',
+      startUsageAmount: getStartUsageAmount(productJson, tierJson, prevTierJson),
+      endUsageAmount: getEndUsageAmount(productJson, tierJson),
+      termLength: productJson.contract_duration,
+    };
+
+    price.priceHash = generatePriceHash(product, price);
+
+    prices.push(price);
+  }
+
+  return prices;
+};
+
+function parseAttributes(productJson: ibmProductJson): ibmAttributes {
+  const attributes: ibmAttributes = {
+    currency: productJson.currency,
+    tierModel: PricingModels.LINEAR,
+    provider: productJson.provider,
+    flavor: productJson.flavor,
+    isolation: productJson.isolation,
+    operatingSystem: productJson.operating_system,
+    ocpIncluded: productJson.ocp_included,
+    catalogRegion: productJson.catalog_region,
+    serverType: productJson.server_type,
+    billingType: productJson.billing_type,
+    country: productJson.country,
+  };
+
+  if (productJson.tiers.length > 1) {
+    attributes.tierModel = PricingModels.GRANULAR_TIER;
+  }
+
+  return attributes;
+};
+
+/**
+ * Product Mapping:
+ * DB:             | ibmProductJson:
+ * --------------- | -----------------
+ * productHash:    | md5(vendorName + region + sku);
+ * sku:            | plan_id - country - currency - flavor - operating_system 
+ * vendorName:     | 'ibm'
+ * region:         | region
+ * service:        | 'containers-kubernetes'
+ * productFamily:  | ''
+ * attributes:     | ibmAttributes
+ * prices:         | Price[]
+ */
+function parseIbmProduct(productJson: ibmProductJson): Product {
+  const product: Product = {
+    productHash: '',
+    sku: `${productJson.plan_id}-${productJson.country}-${productJson.currency}-${productJson.flavor}-${productJson.operating_system}`,
+    vendorName,
+    region: productJson.region,
+    service: serviceId,
+    productFamily: '',
+    attributes: {},
+    prices: [],
+  };
+  product.productHash = generateProductHash(product);
+  product.attributes = parseAttributes(productJson);
+  product.prices = parsePrices(product, productJson);
+
+  return product;
+}
+
+// pricing for some products that are deprecated may be provided in the response
+// and can be ignored
+function isDeprecated(productJson: ibmProductJson): boolean {
+  return !!productJson?.deprecated;
+}
+
+async function loadAll(): Promise<void> {
+  try {
+    const body = fs.readFileSync(filename);
+    const sample = body.toString();
+    const json = <productGroupJson>JSON.parse(sample);
+  
+    const products: Product[] = [];
+  
+    Object.values(json).forEach((productGroup) => {
+      productGroup.forEach((ibmProduct) => {
+        if (!isDeprecated(ibmProduct)) {
+          const product = parseIbmProduct(ibmProduct);
+          products.push(product);
+        }
+      })
+    });
+    await upsertProducts(products);
+  } catch (e) {
+    config.logger.error(`Skipping file ${filename} due to error ${e}`);
+    config.logger.error(e.stack);
+  }
+}
 
 export default {
   scrape,
