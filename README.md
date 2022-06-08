@@ -134,6 +134,10 @@ The environment variable `DISABLE_TELEMETRY` can be set to `true` to opt-out of 
 
 See [the Infracost docs](https://www.infracost.io/docs/cloud_pricing_api/self_hosted/#using-a-self-signed-certificate) for how to configure Infracost CLI to work with a self-hosted Cloud Pricing API that uses a self-signed certificate.
 
+## Troubleshooting
+
+Please see [this section](https://www.infracost.io/docs/cloud_pricing_api/self_hosted/#troubleshooting) and join our [community Slack channel](https://www.infracost.io/community-chat), we'll help you very quickly 😄
+
 ## Contributing
 
 Issues and pull requests are welcome! For development details, see the [contributing guide](CONTRIBUTING.md). For major changes, including interface changes, please open an issue first to discuss what you would like to change. [Join our community Slack channel](https://www.infracost.io/community-chat), we are a friendly bunch and happy to help you get started :)
