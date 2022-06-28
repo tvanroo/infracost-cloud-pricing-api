@@ -6,8 +6,9 @@ import { Product, Price } from '../db/types';
 import { generateProductHash, generatePriceHash } from '../db/helpers';
 import { upsertProducts } from '../db/upsert';
 import config from '../config';
+import { PricingModels } from './ibmCatalog';
 
-// pricing api for IBM classic infrastructure
+// pricing api for IBM Kubernetes infrastructure
 const baseUrl = 'https://cloud.ibm.com/kubernetes/api';
 const filename = `data/ibm-instances.json`;
 const RETRY_DELAY_MS = 30000;
@@ -17,15 +18,6 @@ const serviceId = 'containers-kubernetes';
 // any threshold of nine 9's will be taken to mean infinity and substituted with Inf
 const lastThresholdAmountPattern = /999999999/;
 const lastThresholdAmount = 'Inf';
-
-// https://cloud.ibm.com/docs/sell?topic=sell-meteringintera#pricing
-enum PricingModels {
-  LINEAR = 'Linear',
-  PRORATION = 'Proration',
-  GRANULAR_TIER = 'Granular Tier',
-  STEP_TIER = 'Step Tier',
-  BLOCK_TIER = 'Block Tier'
-};
 
 // shape of JSON from pricing API
 type ibmProductJson = {
@@ -58,10 +50,13 @@ type ibmTiersJson = {
   instance_hours?: number;
 };
 
-// schema for attributes of IBM products
-type ibmAttributes = {
+type productGroupJson = {
+  [key: string]: ibmProductJson[];
+};
+
+// schema for attributes of IBM Kubernetes products
+export type ibmKubernetesAttributes = {
   currency: string;
-  tierModel: PricingModels;
   provider?: string;
   flavor?: string;
   isolation?: string;
@@ -73,9 +68,6 @@ type ibmAttributes = {
   country?: string;
 };
 
-type productGroupJson = {
-  [key: string]: ibmProductJson[];
-};
 
 async function scrape(): Promise<void> {
   await downloadAll();
@@ -176,6 +168,7 @@ function getStartUsageAmount(productJson: ibmProductJson, tierJson: ibmTiersJson
  * priceHash:          | md5()
  * purchaseOption:     | ''
  * unit:               | unit
+ * tierModel:          | PricingModels.LINEAR || PricingModels.STEP_TIER
  * USD?:               | ibmTiersJson.price
  * CNY?:               | NOT USED
  * effectiveDateStart: | effective_from
@@ -197,6 +190,7 @@ function parsePrices(product: Product, productJson: ibmProductJson): Price[] {
     const price: Price = {
       priceHash: '',
       purchaseOption: '',
+      tierModel: numTiers > 1 ? PricingModels.STEP_TIER : PricingModels.LINEAR,
       unit: productJson.unit,
       USD: tierJson.price?.toString(),
       effectiveDateStart: productJson.effective_from || '',
@@ -214,10 +208,9 @@ function parsePrices(product: Product, productJson: ibmProductJson): Price[] {
   return prices;
 };
 
-function parseAttributes(productJson: ibmProductJson): ibmAttributes {
-  const attributes: ibmAttributes = {
+function parseAttributes(productJson: ibmProductJson): ibmKubernetesAttributes {
+  const attributes: ibmKubernetesAttributes = {
     currency: productJson.currency,
-    tierModel: PricingModels.LINEAR,
     provider: productJson.provider,
     flavor: productJson.flavor,
     isolation: productJson.isolation,
@@ -228,10 +221,6 @@ function parseAttributes(productJson: ibmProductJson): ibmAttributes {
     billingType: productJson.billing_type,
     country: productJson.country,
   };
-
-  if (productJson.tiers.length > 1) {
-    attributes.tierModel = PricingModels.GRANULAR_TIER;
-  }
 
   return attributes;
 };
@@ -246,7 +235,7 @@ function parseAttributes(productJson: ibmProductJson): ibmAttributes {
  * region:         | region
  * service:        | 'containers-kubernetes'
  * productFamily:  | ''
- * attributes:     | ibmAttributes
+ * attributes:     | ibmKubernetesAttributes
  * prices:         | Price[]
  */
 function parseIbmProduct(productJson: ibmProductJson): Product {
