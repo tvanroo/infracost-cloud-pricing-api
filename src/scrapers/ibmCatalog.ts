@@ -76,7 +76,6 @@ export type Deployment = {
   id?: string;
   name?: string;
   geo_tags?: string[];
-  // deployments: Deployment[];
 };
 
 // https://cloud.ibm.com/docs/sell?topic=sell-meteringintera#pricing
@@ -104,6 +103,10 @@ const globalCatalogHierarchy: Record<string, string> = {
   iaas: 'iaas',
 };
 
+type RecursiveNonNullable<T> = {
+  [K in keyof T]-?: RecursiveNonNullable<NonNullable<T[K]>>;
+};
+
 /**
  * Flattens the tree of pricing info for a plan, as each plan can describe multiple charge models (Metric).
  * A charge model describes the pricing model (tier), the unit, a quantity, and the part number to charge against.
@@ -123,14 +126,9 @@ const globalCatalogHierarchy: Record<string, string> = {
  *     - quantity threshold
  *     - price
  *
- * @param input
+ * @param pricingObject
  * @returns
  */
-
-type CompleteObject<T> = {
-  [K in keyof T]: NonNullable<T[K]>;
-};
-
 function parsePricingJson(
   pricingObject: GlobalCatalogV1.PricingGet
 ): PricingMetaData | null {
@@ -142,7 +140,7 @@ function parsePricingJson(
     deployment_location: region,
     starting_price: startingPrice,
     metrics,
-  } = pricingObject as CompleteObject<CompletePricingGet>;
+  } = pricingObject as RecursiveNonNullable<CompletePricingGet>;
 
   let amountAndMetrics: AmountsAndMetrics = { amounts: {}, metrics: {} };
   if (metrics?.length) {
@@ -201,14 +199,14 @@ function parsePricingJson(
       type,
       region,
       startingPrice,
-      ...amountAndMetrics,
-    } as PricingMetaData;
+      ...amountAndMetrics
+    } as unknown as PricingMetaData;
   }
   return {
     type,
     region,
     startingPrice,
-  } as PricingMetaData;
+  } as unknown as PricingMetaData;
 }
 
 // q: 'kind:service active:true price:paygo',
