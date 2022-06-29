@@ -29,7 +29,7 @@ const Scrapers = {
   },
   */
   ibm: {
-    kubernetes: ibmKubernetes.scrape,
+    // kubernetes: ibmKubernetes.scrape,
     catalog: ibmCatalog.scrape,
   }
 };

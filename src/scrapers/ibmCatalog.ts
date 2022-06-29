@@ -1,9 +1,9 @@
 import GlobalCatalogV1, {
-  CatalogEntry,
   PricingGet,
 } from '@ibm-cloud/platform-services/global-catalog/v1';
 import { IamAuthenticator } from '@ibm-cloud/platform-services/auth';
 import { writeFile } from 'fs/promises';
+import _ from 'lodash';
 
 import { Product, Price } from '../db/types';
 import { generateProductHash } from '../db/helpers';
@@ -18,6 +18,11 @@ const client = GlobalCatalogV1.newInstance({
 });
 
 const filename = `data/ibm-catalog.json`;
+
+type CatalogEntry = GlobalCatalogV1.CatalogEntry & {
+  children: CatalogEntry[];
+  pricingChildren?: PricingGet[];
+};
 
 type CatalogJson = {
   [name: string]: (CatalogJson | PricingMetaData)[];
@@ -111,113 +116,6 @@ const globalCatalogHierarchy: Record<string, string> = {
   iaas: 'iaas',
 };
 
-function nextKind(kind: string): string {
-  return globalCatalogHierarchy[kind];
-}
-
-async function queryCatalogItems<
-  Result extends Record<string, unknown> = Record<string, unknown>
->(
-  params:
-    | GlobalCatalogV1.ListCatalogEntriesParams
-    | GlobalCatalogV1.GetChildObjectsParams,
-  processLeaf?: (
-    input: GlobalCatalogV1.EntrySearchResult | GlobalCatalogV1.PricingGet
-  ) => Record<string, unknown>
-): Promise<ResultsWithNext<Result>> {
-  let response: GlobalCatalogV1.Response<GlobalCatalogV1.EntrySearchResult>;
-  if ('id' in params) {
-    response = await client.getChildObjects(params);
-  } else {
-    response = await client.listCatalogEntries(params);
-  }
-
-  if (response.status >= 400) {
-    config.logger.error(
-      `Received status ${response.status} from IBM Cloud global catalog.`
-    );
-    throw new Error();
-  }
-  if (!response?.result) {
-    config.logger.error(`No result in response: ${JSON.stringify(response)}`);
-    throw new Error();
-  }
-
-  if (!response?.result?.resources) {
-    if (processLeaf) {
-      return {
-        results: [processLeaf(response?.result)] as Result[],
-      };
-    }
-    return {
-      results: [response?.result] as Result[],
-    };
-  }
-  const services = response?.result?.resources;
-  const products = await Promise.all(
-    services.map(async (service: CatalogEntry): Promise<Result> => {
-      const { id, name, kind, disabled } = service;
-      if (!id || disabled) {
-        config.logger.info(`service is undefined or disabled. Skipping.`);
-        return {
-          [name]: [],
-        } as Result;
-      }
-      if (nextKind(kind)) {
-        const children = await download(() =>
-          queryCatalogItems(
-            {
-              id,
-              kind: nextKind(kind),
-            },
-            processLeaf
-          )
-        );
-
-        return {
-          [name]: children,
-        } as Result;
-      }
-      return {
-        [name]: null,
-      } as Result;
-    })
-  ).catch((e) => {
-    console.info(e);
-  });
-  const { resource_count: resourceCount, count, offset } = response.result;
-  if (
-    products &&
-    typeof count === 'number' &&
-    typeof offset === 'number' &&
-    typeof resourceCount === 'number'
-  ) {
-    config.logger.info(
-      `${products.map((p) => Object.keys(p))}: ${
-        offset + resourceCount
-      } of ${count}`
-    );
-    if (offset + resourceCount < count) {
-      return {
-        results: products as Result[],
-        next() {
-          return queryCatalogItems<Result>(
-            {
-              ...params,
-              offset: offset + resourceCount,
-            },
-            processLeaf
-          );
-        },
-      };
-    }
-  }
-  config.logger.info(`FINISHED`);
-  return {
-    results: products as Result[],
-  };
-}
-
 /**
  * Flattens the tree of pricing info for a plan, as each plan can describe multiple charge models (Metric).
  * A charge model describes the pricing model (tier), the unit, a quantity, and the part number to charge against.
@@ -240,22 +138,23 @@ async function queryCatalogItems<
  * @param input
  * @returns
  */
+
+type CompleteObject<T> = {
+  [K in keyof T]: NonNullable<T[K]>;
+};
+
 function parsePricingJson(
-  input:
-    | GlobalCatalogV1.EntrySearchResult
-    | GlobalCatalogV1.PricingGet
-    | GlobalCatalogV1.CatalogEntry
-): Record<string, unknown> {
-  console.log(input);
-  if (!('metrics' in input)) {
-    return {};
+  pricingObject: GlobalCatalogV1.PricingGet
+): PricingMetaData | null {
+  if (!('metrics' in pricingObject)) {
+    return null;
   }
   const {
     type,
     deployment_location: region,
     starting_price: startingPrice,
     metrics,
-  } = input as CompletePricingGet;
+  } = pricingObject as CompleteObject<CompletePricingGet>;
 
   let amountAndMetrics: AmountsAndMetrics = { amounts: {}, metrics: {} };
   if (metrics?.length) {
@@ -281,6 +180,7 @@ function parsePricingJson(
           return collection;
         }
 
+        // eslint-disable-next-line no-param-reassign
         collection.metrics[metricId] = {
           tierModel,
           chargeUnitName,
@@ -295,8 +195,10 @@ function parsePricingJson(
           if (amount?.prices?.length && amount?.country && amount?.currency) {
             const key = `${amount.country}-${amount.currency}`;
             if (collection.amounts[key]) {
+              // eslint-disable-next-line no-param-reassign
               collection.amounts[key][metricId] = amount.prices as GCPrice[];
             } else {
+              // eslint-disable-next-line no-param-reassign
               collection.amounts[key] = {
                 [metricId]: amount.prices as GCPrice[],
               };
@@ -312,13 +214,13 @@ function parsePricingJson(
       region,
       startingPrice,
       ...amountAndMetrics,
-    };
+    } as PricingMetaData;
   }
   return {
     type,
     region,
     startingPrice,
-  };
+  } as PricingMetaData;
 }
 
 // q: 'kind:service active:true price:paygo',
@@ -499,38 +401,33 @@ function getAttributes(
  * @param services
  * @returns
  */
-function parseProducts(services: CatalogJson[]): Product[] {
+function parseProducts(services: CatalogEntry[]): Product[] {
   const products: Product[] = [];
   // for now, only grab USA, USD pricing
   const country = 'USA';
   const currency = 'USD';
-  services.forEach((service) => {
-    Object.entries(service).forEach(([serviceId, plans]) => {
-      if (!plans?.length) {
-        return;
-      }
-      plans.forEach((plan) => {
-        Object.entries(plan).forEach(
-          ([planName, deployments]: [
-            string,
-            (CatalogJson | AmountsAndMetrics)[]
-          ]) => {
-            if (!deployments?.length) {
-              return;
-            }
-            deployments.forEach((deployment) => {
-              Object.entries(deployment).forEach(([, pricing]) => {
-                const prices = getPrices(pricing?.[0], country, currency);
-                const attributes = getAttributes(pricing?.[0], planName);
+  for (const service of services) {
+    if (service.children) {
+      for (const plan of service.children) {
+        if (plan.children) {
+          for (const deployment of plan.children) {
+            if (deployment.pricingChildren) {
+              for (const pricing of deployment.pricingChildren) {
+                const processedPricing = parsePricingJson(pricing);
+                if (!processedPricing) {
+                  continue;
+                }
+                const prices = getPrices(processedPricing, country, currency);
+                const attributes = getAttributes(processedPricing, plan.name);
                 const region = attributes?.region || country;
 
                 if (prices?.length) {
                   const p = {
                     productHash: ``,
-                    sku: `${serviceId}-${planName}`,
+                    sku: `${service.name}-${plan.name}`,
                     vendorName: 'ibm',
                     region,
-                    service: serviceId,
+                    service: service.name,
                     productFamily: 'service',
                     attributes,
                     prices,
@@ -538,13 +435,13 @@ function parseProducts(services: CatalogJson[]): Product[] {
                   p.productHash = generateProductHash(p);
                   products.push(p);
                 }
-              });
-            });
+              }
+            }
           }
-        );
-      });
-    });
-  });
+        }
+      }
+    }
+  }
   return products;
 }
 
@@ -558,7 +455,8 @@ async function getCatalogEntries(
 
   while (next) {
     const response = await globalCatalog.listCatalogEntries({
-      q: 'kind:service',
+      q: 'kind:service active:true',
+      include: 'id:geo_tags:kind:name:pricing_tags',
       account: 'global',
       limit,
       offset,
@@ -574,65 +472,51 @@ async function getCatalogEntries(
   return servicesArray;
 }
 
-type CatalogEntry = GlobalCatalogV1.CatalogEntry & {
-  children: CatalogEntry[];
-};
-
 async function scrape(): Promise<void> {
-  const results = [];
-
+  config.logger.info(`Started IBM Cloud scraping at ${new Date()}`);
+  const results: CatalogEntry[] = [];
   const serviceEntries = await getCatalogEntries(client);
   for (const service of serviceEntries) {
-    const serviceTree = (
+    config.logger.info(`Scraping pricing for ${service.name}...`);
+    const serviceEntryTree = (
       await client.getCatalogEntry({
         id: service.id as string,
         depth: 3,
-        include: '*',
+        include: 'children:kind:tags:geo_tags:pricing_tags:name',
       })
     ).result as CatalogEntry;
-    for (const plan of serviceTree.children) {
-      for (const deployment of plan.children) {
-        try {
-          const pricingObjects = (
-            await client.getChildObjects({
-              id: deployment.id as string,
-              kind: 'pricing',
-            })
-          ).result.resources;
-          if (!pricingObjects) {
-            continue;
+    if (serviceEntryTree.children) {
+      for (const plan of serviceEntryTree.children) {
+        if (plan.children) {
+          const chunks = _.chunk(plan.children, 5);
+          for (const deployments of chunks) {
+            await Promise.all(
+              deployments.map(async (deployment): Promise<void> => {
+                try {
+                  const pricingObject = (
+                    await client.getChildObjects({
+                      id: deployment.id as string,
+                      kind: 'pricing',
+                    })
+                  ).result as PricingGet;
+                  if (!pricingObject) {
+                    return;
+                  }
+                  // eslint-disable-next-line no-param-reassign
+                  deployment.pricingChildren = [pricingObject];
+                } catch (e) {
+                  config.logger.info(e);
+                }
+              })
+            );
           }
-          for (const pricing of pricingObjects) {
-            const country = 'USA';
-            const currency = 'USD';
-            const parsedPricing = parsePricingJson(pricing);
-            const prices = getPrices(parsedPricing?.[0], country, currency);
-            const attributes = getAttributes(parsedPricing?.[0], plan.name);
-            const region = attributes?.region || country;
-
-            if (prices?.length) {
-              const p = {
-                productHash: ``,
-                sku: `${serviceTree.name}-${plan.name}`,
-                vendorName: 'ibm',
-                region,
-                service: serviceTree.name,
-                productFamily: 'service',
-                attributes,
-                prices,
-              };
-              p.productHash = generateProductHash(p);
-              results.push(p);
-            }
-          }
-        } catch (e) {
-          config.logger.error(e);
         }
       }
     }
+    results.push(serviceEntryTree);
   }
-
-  writeFile(filename, JSON.stringify(results, null, 2));
+  config.logger.info(`Ended IBM Cloud scraping at ${new Date()}`);
+  await writeFile(filename, JSON.stringify(results, null, 2));
   const products = parseProducts(results);
   writeFile('products2.json', JSON.stringify(products, null, 2));
   await upsertProducts(products);
