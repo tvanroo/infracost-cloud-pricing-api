@@ -30,7 +30,7 @@ const Scrapers = {
   ibm: {
     kubernetes: ibmKubernetes.scrape,
     catalog: ibmCatalog.scrape,
-  }
+  },
 };
 
 async function run(): Promise<void> {
