@@ -15,7 +15,6 @@ interface ScraperConfig {
 }
 
 const Scrapers = {
-  /*
   aws: {
     bulk: awsBulk.scrape,
     spot: awsSpot.scrape,
@@ -27,9 +26,8 @@ const Scrapers = {
     catalog: gcpCatalog.scrape,
     machineTypes: gcpMachineTypes.scrape,
   },
-  */
   ibm: {
-    // kubernetes: ibmKubernetes.scrape,
+    kubernetes: ibmKubernetes.scrape,
     catalog: ibmCatalog.scrape,
   }
 };

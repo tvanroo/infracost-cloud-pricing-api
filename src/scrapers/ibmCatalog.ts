@@ -10,7 +10,6 @@ import { generateProductHash } from '../db/helpers';
 import { upsertProducts } from '../db/upsert';
 import config from '../config';
 
-console.log(config);
 const client = GlobalCatalogV1.newInstance({
   authenticator: new IamAuthenticator({
     apikey: config.ibmCloudApiKey as string,
@@ -24,20 +23,9 @@ type CatalogEntry = GlobalCatalogV1.CatalogEntry & {
   pricingChildren?: PricingGet[];
 };
 
-type CatalogJson = {
-  [name: string]: (CatalogJson | PricingMetaData)[];
-};
-
 type GCPrice = {
   price: number;
   quantity_tier: number;
-};
-
-type ResultsWithNext<
-  Results extends Record<string, unknown> = Record<string, unknown>
-> = {
-  results: Results[];
-  next?: () => Promise<ResultsWithNext<Results>>;
 };
 
 type CompletePricingGet = PricingGet & {
@@ -226,7 +214,6 @@ function parsePricingJson(
 // q: 'kind:service active:true price:paygo',
 const serviceParams = {
   q: 'kind:service active:true',
-  limit: 5,
   include: 'id:geo_tags:kind:name:pricing_tags',
 };
 
@@ -235,21 +222,6 @@ const infrastuctureQuery = {
   limit: 5,
   include: 'id:geo_tags:kind:name:pricing_tags',
 };
-
-async function download(
-  query: () => Promise<ResultsWithNext>
-): Promise<Record<string, unknown>[]> {
-  try {
-    const products = await query();
-    if (products.next) {
-      return [...products.results, ...(await download(products.next))];
-    }
-    return products.results;
-  } catch (e) {
-    config.logger.error((e as Error).message);
-    return [];
-  }
-}
 
 /**
  * Price Mapping:
@@ -477,7 +449,7 @@ async function scrape(): Promise<void> {
   const results: CatalogEntry[] = [];
   const serviceEntries = await getCatalogEntries(client);
   for (const service of serviceEntries) {
-    config.logger.info(`Scraping pricing for ${service.name}...`);
+    config.logger.info(`Scraping pricing for ${service.name}`);
     const serviceEntryTree = (
       await client.getCatalogEntry({
         id: service.id as string,
@@ -505,7 +477,7 @@ async function scrape(): Promise<void> {
                   // eslint-disable-next-line no-param-reassign
                   deployment.pricingChildren = [pricingObject];
                 } catch (e) {
-                  config.logger.info(e);
+                  config.logger.info(e?.message);
                 }
               })
             );
@@ -515,12 +487,11 @@ async function scrape(): Promise<void> {
     }
     results.push(serviceEntryTree);
   }
-  config.logger.info(`Ended IBM Cloud scraping at ${new Date()}`);
   await writeFile(filename, JSON.stringify(results, null, 2));
   const products = parseProducts(results);
-  writeFile('products2.json', JSON.stringify(products, null, 2));
+  await writeFile('products.json', JSON.stringify(products, null, 2));
   await upsertProducts(products);
-  config.logger.info('-------- ALL DONE -------');
+  config.logger.info(`Ended IBM Cloud scraping at ${new Date()}`);
 }
 
 export default {
