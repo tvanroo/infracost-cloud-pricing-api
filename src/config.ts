@@ -86,6 +86,7 @@ const config = {
   gcpApiKey: process.env.GCP_API_KEY,
   gcpKeyFile: generateGcpKeyFile(),
   gcpProject: process.env.GCP_PROJECT,
+  ibmCloudApiKey: process.env.IBM_CLOUD_API_KEY,
 };
 
 export default config;

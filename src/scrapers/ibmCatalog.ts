@@ -1,4 +1,8 @@
-import GlobalCatalogV1, { CatalogEntry, PricingGet } from '@ibm-cloud/platform-services/global-catalog/v1';
+import GlobalCatalogV1, {
+  CatalogEntry,
+  PricingGet,
+} from '@ibm-cloud/platform-services/global-catalog/v1';
+import { IamAuthenticator } from '@ibm-cloud/platform-services/auth';
 import { writeFile } from 'fs/promises';
 
 import { Product, Price } from '../db/types';
@@ -6,23 +10,30 @@ import { generateProductHash } from '../db/helpers';
 import { upsertProducts } from '../db/upsert';
 import config from '../config';
 
+console.log(config);
+const client = GlobalCatalogV1.newInstance({
+  authenticator: new IamAuthenticator({
+    apikey: config.ibmCloudApiKey as string,
+  }),
+});
 
-const client = GlobalCatalogV1.newInstance({});
 const filename = `data/ibm-catalog.json`;
 
 type CatalogJson = {
-  [name: string]: (CatalogJson | PricingMetaData)[]
-}
+  [name: string]: (CatalogJson | PricingMetaData)[];
+};
 
 type GCPrice = {
   price: number;
   quantity_tier: number;
-}
+};
 
-type ResultsWithNext<Results extends Record<string, unknown> = Record<string, unknown>> = {
-  results: Results[],
-  next?: () => Promise<ResultsWithNext<Results>>
-}
+type ResultsWithNext<
+  Results extends Record<string, unknown> = Record<string, unknown>
+> = {
+  results: Results[];
+  next?: () => Promise<ResultsWithNext<Results>>;
+};
 
 type CompletePricingGet = PricingGet & {
   deployment_id?: string;
@@ -30,9 +41,9 @@ type CompletePricingGet = PricingGet & {
   deployment_region?: string;
   effective_from?: string;
   effective_until?: string;
-}
+};
 
-type UsageMetrics  = {
+type UsageMetrics = {
   tierModel?: string;
   chargeUnitName?: string;
   chargeUnit?: string;
@@ -41,20 +52,20 @@ type UsageMetrics  = {
   displayCap?: number;
   effectiveFrom?: string;
   effectiveUntil?: string;
-}
+};
 
-type AmountsRecord = Record<string, Record<string, GCPrice[]>>
-type MetricsRecord = Record<string, Omit<UsageMetrics, "amounts">>
+type AmountsRecord = Record<string, Record<string, GCPrice[]>>;
+type MetricsRecord = Record<string, Omit<UsageMetrics, 'amounts'>>;
 
 type AmountsAndMetrics = {
   amounts: AmountsRecord;
   metrics: MetricsRecord;
-}
+};
 type PricingMetaData = AmountsAndMetrics & {
   type: string;
   region: string;
-  startingPrice: GCPrice,
-}
+  startingPrice: GCPrice;
+};
 
 export type Service = {
   id?: string;
@@ -81,31 +92,39 @@ export enum PricingModels {
   PRORATION = 'Proration',
   GRANULAR_TIER = 'Granular Tier',
   STEP_TIER = 'Step Tier',
-  BLOCK_TIER = 'Block Tier'
-};
+  BLOCK_TIER = 'Block Tier',
+}
 
 // schema for attributes of IBM products
 export type ibmAttributes = {
-  planName?: string,
-  planType?: string,
-  startPrice?: string,
-  startQuantityTier?: string,
-  region?: string,
+  planName?: string;
+  planType?: string;
+  startPrice?: string;
+  startQuantityTier?: string;
+  region?: string;
 };
-
 
 const globalCatalogHierarchy: Record<string, string> = {
   service: 'plan',
   plan: 'deployment',
   deployment: 'pricing',
   iaas: 'iaas',
-}
+};
 
-function nextKind(kind:string): string {
+function nextKind(kind: string): string {
   return globalCatalogHierarchy[kind];
 }
 
-async function queryCatalogItems<Result extends Record<string, unknown> = Record<string, unknown>>(params: GlobalCatalogV1.ListCatalogEntriesParams | GlobalCatalogV1.GetChildObjectsParams, processLeaf?: (input: GlobalCatalogV1.EntrySearchResult | GlobalCatalogV1.PricingGet) => Record<string, unknown>): Promise<ResultsWithNext<Result>> {
+async function queryCatalogItems<
+  Result extends Record<string, unknown> = Record<string, unknown>
+>(
+  params:
+    | GlobalCatalogV1.ListCatalogEntriesParams
+    | GlobalCatalogV1.GetChildObjectsParams,
+  processLeaf?: (
+    input: GlobalCatalogV1.EntrySearchResult | GlobalCatalogV1.PricingGet
+  ) => Record<string, unknown>
+): Promise<ResultsWithNext<Result>> {
   let response: GlobalCatalogV1.Response<GlobalCatalogV1.EntrySearchResult>;
   if ('id' in params) {
     response = await client.getChildObjects(params);
@@ -114,11 +133,13 @@ async function queryCatalogItems<Result extends Record<string, unknown> = Record
   }
 
   if (response.status >= 400) {
-    config.logger.error(`Received status ${response.status} from IBM Cloud global catalog.`)
+    config.logger.error(
+      `Received status ${response.status} from IBM Cloud global catalog.`
+    );
     throw new Error();
   }
-  if (! response?.result) {
-    config.logger.error(`No result in response: ${JSON.stringify(response)}`)
+  if (!response?.result) {
+    config.logger.error(`No result in response: ${JSON.stringify(response)}`);
     throw new Error();
   }
 
@@ -133,65 +154,78 @@ async function queryCatalogItems<Result extends Record<string, unknown> = Record
     };
   }
   const services = response?.result?.resources;
-  const products = await Promise.all(services.map(async (service: CatalogEntry): Promise<Result> => {
-    const {id, name, kind, disabled} = service;
-    if (!id || disabled) {
-      config.logger.info(`service is undefined or disabled. Skipping.`)
-      return {
-        [name]: []
-      } as Result;
-    }
-    if (nextKind(kind)) {
-      const children = await download(() => 
-        queryCatalogItems({
-          id,
-          kind: nextKind(kind),
-        }, processLeaf)
-      );
+  const products = await Promise.all(
+    services.map(async (service: CatalogEntry): Promise<Result> => {
+      const { id, name, kind, disabled } = service;
+      if (!id || disabled) {
+        config.logger.info(`service is undefined or disabled. Skipping.`);
+        return {
+          [name]: [],
+        } as Result;
+      }
+      if (nextKind(kind)) {
+        const children = await download(() =>
+          queryCatalogItems(
+            {
+              id,
+              kind: nextKind(kind),
+            },
+            processLeaf
+          )
+        );
 
+        return {
+          [name]: children,
+        } as Result;
+      }
       return {
-        [name]: children,
+        [name]: null,
       } as Result;
-    }
-    return {
-      [name]: null,
-    } as Result;
-  })).catch((e) => {
+    })
+  ).catch((e) => {
     console.info(e);
   });
-  const {
-    resource_count: resourceCount,
-    count,
-    offset,
-  } = response.result;
-  if (products && typeof count === 'number' && typeof offset === 'number' && typeof resourceCount === 'number') {
-    config.logger.info(`${products.map((p) => Object.keys(p))}: ${offset + resourceCount} of ${count}`);
+  const { resource_count: resourceCount, count, offset } = response.result;
+  if (
+    products &&
+    typeof count === 'number' &&
+    typeof offset === 'number' &&
+    typeof resourceCount === 'number'
+  ) {
+    config.logger.info(
+      `${products.map((p) => Object.keys(p))}: ${
+        offset + resourceCount
+      } of ${count}`
+    );
     if (offset + resourceCount < count) {
       return {
         results: products as Result[],
         next() {
-          return queryCatalogItems<Result>({
-            ...params,
-            offset: offset + resourceCount,
-          }, processLeaf);
+          return queryCatalogItems<Result>(
+            {
+              ...params,
+              offset: offset + resourceCount,
+            },
+            processLeaf
+          );
         },
-      }
+      };
     }
   }
   config.logger.info(`FINISHED`);
   return {
     results: products as Result[],
-  }
+  };
 }
 
 /**
  * Flattens the tree of pricing info for a plan, as each plan can describe multiple charge models (Metric).
  * A charge model describes the pricing model (tier), the unit, a quantity, and the part number to charge against.
  * Multiple charge models can be in use at one time, which would translate to multiple cost components for a product.
- * 
+ *
  * The pricing for each country-currency combination is available for each Metric in an 'amounts' array. Any thresholds
  * for tiered pricing models are defined with the price for each country-currency.
- * 
+ *
  * Pricing for a plan:
  * - plan type
  * - Metrics [] (by part number and tier model)
@@ -202,13 +236,19 @@ async function queryCatalogItems<Result extends Record<string, unknown> = Record
  *   - Amounts [] (by country and currency)
  *     - quantity threshold
  *     - price
- * 
- * @param input 
- * @returns 
+ *
+ * @param input
+ * @returns
  */
-function parsePricingJson(input: GlobalCatalogV1.EntrySearchResult | GlobalCatalogV1.PricingGet): Record<string, unknown> {
+function parsePricingJson(
+  input:
+    | GlobalCatalogV1.EntrySearchResult
+    | GlobalCatalogV1.PricingGet
+    | GlobalCatalogV1.CatalogEntry
+): Record<string, unknown> {
+  console.log(input);
   if (!('metrics' in input)) {
-    return {}
+    return {};
   }
   const {
     type,
@@ -217,53 +257,61 @@ function parsePricingJson(input: GlobalCatalogV1.EntrySearchResult | GlobalCatal
     metrics,
   } = input as CompletePricingGet;
 
-  let amountAndMetrics: AmountsAndMetrics = {amounts: {}, metrics: {}};
+  let amountAndMetrics: AmountsAndMetrics = { amounts: {}, metrics: {} };
   if (metrics?.length) {
-    amountAndMetrics = metrics.reduce((collection: AmountsAndMetrics, metric: GlobalCatalogV1.Metrics): AmountsAndMetrics => {
-      const {
-        metric_id: metricId,
-        amounts,
-        tier_model: tierModel,
-        charge_unit_name: chargeUnitName,
-        charge_unit: chargeUnit,
-        charge_unit_quantity: chargeUnitQty,
-        usage_cap_qty: usageCapQty,
-        display_cap: displayCap,
-        effective_from: effectiveFrom,
-        effective_until: effectiveUntil,
-      } = metric;
+    amountAndMetrics = metrics.reduce(
+      (
+        collection: AmountsAndMetrics,
+        metric: GlobalCatalogV1.Metrics
+      ): AmountsAndMetrics => {
+        const {
+          metric_id: metricId,
+          amounts,
+          tier_model: tierModel,
+          charge_unit_name: chargeUnitName,
+          charge_unit: chargeUnit,
+          charge_unit_quantity: chargeUnitQty,
+          usage_cap_qty: usageCapQty,
+          display_cap: displayCap,
+          effective_from: effectiveFrom,
+          effective_until: effectiveUntil,
+        } = metric;
 
-      if (!metricId) {
-        return collection;
-      }
-
-      collection.metrics[metricId] = {
-        tierModel,
-        chargeUnitName,
-        chargeUnit,
-        chargeUnitQty,
-        usageCapQty,
-        displayCap,
-        effectiveFrom,
-        effectiveUntil,
-      };
-      amounts?.forEach((amount) => {
-        if (amount?.prices?.length && amount?.country && amount?.currency) {
-          const key = `${amount.country}-${amount.currency}`;
-          if (collection.amounts[key]) {
-            collection.amounts[key][metricId] = amount.prices as GCPrice[];
-          } else {
-            collection.amounts[key] = {[metricId]: amount.prices as GCPrice[]};
-          }
+        if (!metricId) {
+          return collection;
         }
-      })
-      return collection;
-    }, amountAndMetrics);
+
+        collection.metrics[metricId] = {
+          tierModel,
+          chargeUnitName,
+          chargeUnit,
+          chargeUnitQty,
+          usageCapQty,
+          displayCap,
+          effectiveFrom,
+          effectiveUntil,
+        };
+        amounts?.forEach((amount) => {
+          if (amount?.prices?.length && amount?.country && amount?.currency) {
+            const key = `${amount.country}-${amount.currency}`;
+            if (collection.amounts[key]) {
+              collection.amounts[key][metricId] = amount.prices as GCPrice[];
+            } else {
+              collection.amounts[key] = {
+                [metricId]: amount.prices as GCPrice[],
+              };
+            }
+          }
+        });
+        return collection;
+      },
+      amountAndMetrics
+    );
     return {
       type,
       region,
       startingPrice,
-      ...amountAndMetrics
+      ...amountAndMetrics,
     };
   }
   return {
@@ -277,20 +325,20 @@ function parsePricingJson(input: GlobalCatalogV1.EntrySearchResult | GlobalCatal
 const serviceParams = {
   q: 'kind:service active:true',
   limit: 5,
-  include: 'id:geo_tags:kind:name:pricing_tags'
+  include: 'id:geo_tags:kind:name:pricing_tags',
 };
 
 const infrastuctureQuery = {
   q: 'kind:iaas active:true',
   limit: 5,
-  include: 'id:geo_tags:kind:name:pricing_tags'
+  include: 'id:geo_tags:kind:name:pricing_tags',
 };
 
-async function download(query: () => Promise<ResultsWithNext>): Promise<Record<string,unknown>[]> {
+async function download(
+  query: () => Promise<ResultsWithNext>
+): Promise<Record<string, unknown>[]> {
   try {
-    // const accessToken = await getIbmCloudAccessToken();
     const products = await query();
-    
     if (products.next) {
       return [...products.results, ...(await download(products.next))];
     }
@@ -301,7 +349,7 @@ async function download(query: () => Promise<ResultsWithNext>): Promise<Record<s
   }
 }
 
-/** 
+/**
  * Price Mapping:
  * DB Price:           | ibmCatalogJson:
  * ------------------- | -------------------------
@@ -322,63 +370,63 @@ async function download(query: () => Promise<ResultsWithNext>): Promise<Record<s
  * country             | country
  * currency            | currency
  * partNumber          | partNumber
- * 
+ *
  * @param currency https://www.ibm.com/support/pages/currency-code-9comibmhelpsppartneruserdocsaasspcurrencycodehtml
- * 
+ *
  * @returns an empty array if no pricing found
  */
-function getPrices(pricing: PricingMetaData, country: string, currency: string): Price[] {
-  let prices: Price[] = []
+function getPrices(
+  pricing: PricingMetaData,
+  country: string,
+  currency: string
+): Price[] {
+  let prices: Price[] = [];
 
   if (pricing) {
-    const {
-      metrics,
-      amounts,
-    } = pricing;
+    const { metrics, amounts } = pricing;
 
     if (!metrics) {
       return prices;
     }
-    const geoKey = `${country}-${currency}`
-    prices = Object.entries(amounts[geoKey]).map(([partNumber, costs]): Price[] => {
-      const {
-        tierModel,
-        chargeUnitName,
-        chargeUnit,
-        chargeUnitQty,
-        // usageCapQty,
-        // displayCap,
-        effectiveFrom,
-        effectiveUntil,
-      } = metrics[partNumber];
-
-      return costs.map((cost: GCPrice): Price => {
+    const geoKey = `${country}-${currency}`;
+    prices = Object.entries(amounts[geoKey])
+      .map(([partNumber, costs]): Price[] => {
         const {
-          price,
-          quantity_tier: quantityTier,
-        } = cost;
-
-        return {
-          priceHash: `${chargeUnitName}-${chargeUnitQty}-${country}-${currency}-${quantityTier}-${partNumber}`,
-          purchaseOption: String(chargeUnitQty),
-          USD: String(price),
-          endUsageAmount: String(quantityTier),
           tierModel,
+          chargeUnitName,
+          chargeUnit,
+          chargeUnitQty,
           // usageCapQty,
           // displayCap,
-          description: chargeUnit,
-          unit: chargeUnitName ?? '',
-          effectiveDateStart: effectiveFrom ?? new Date().toISOString(),
-          effectiveDateEnd: effectiveUntil,
-          country,
-          currency,
-          partNumber,
-        };
-      });
-    }).flat();
+          effectiveFrom,
+          effectiveUntil,
+        } = metrics[partNumber];
+
+        return costs.map((cost: GCPrice): Price => {
+          const { price, quantity_tier: quantityTier } = cost;
+
+          return {
+            priceHash: `${chargeUnitName}-${chargeUnitQty}-${country}-${currency}-${quantityTier}-${partNumber}`,
+            purchaseOption: String(chargeUnitQty),
+            USD: String(price),
+            endUsageAmount: String(quantityTier),
+            tierModel,
+            // usageCapQty,
+            // displayCap,
+            description: chargeUnit,
+            unit: chargeUnitName ?? '',
+            effectiveDateStart: effectiveFrom ?? new Date().toISOString(),
+            effectiveDateEnd: effectiveUntil,
+            country,
+            currency,
+            partNumber,
+          };
+        });
+      })
+      .flat();
   }
-  return prices
-} 
+  return prices;
+}
 
 /**
  * Schema for IBM product Attributes from global catalog
@@ -389,26 +437,22 @@ function getPrices(pricing: PricingMetaData, country: string, currency: string):
  * startingPrice     | startingPrice
  * startQuantityTier | startQuantityTier
  * region            | region
- * 
- * @param pricing 
- * @returns 
+ *
+ * @param pricing
+ * @returns
  */
-function getAttributes(pricing: PricingMetaData, planName: string): ibmAttributes {
+function getAttributes(
+  pricing: PricingMetaData,
+  planName: string
+): ibmAttributes {
   if (!pricing) {
-    return {}
+    return {};
   }
 
-  const {
-    startingPrice,
-    type,
-    region,
-  } = pricing;
+  const { startingPrice, type, region } = pricing;
 
-  const {
-    price: startPrice,
-    quantity_tier: startQuantityTier,
-  } = startingPrice;
-  
+  const { price: startPrice, quantity_tier: startQuantityTier } = startingPrice;
+
   const attributes: ibmAttributes = {
     planName,
     planType: type,
@@ -418,11 +462,11 @@ function getAttributes(pricing: PricingMetaData, planName: string): ibmAttribute
   };
 
   return attributes;
-};
+}
 
 /**
  * Global Catalog is an hierarchy of things, of which we are interested in 'services' and 'iaas' kinds on the root.
- * 
+ *
  * Root:
  * | service
  *   - plans []
@@ -436,10 +480,10 @@ function getAttributes(pricing: PricingMetaData, planName: string): ibmAttribute
  *         - tier
  *         - unit
  *         - effective dates
- * 
+ *
  *  | iaas
- *    - 
- * 
+ *    -
+ *
  * Product Mapping:
  * DB:             | CatalogJson:
  * --------------- | -----------------
@@ -452,26 +496,30 @@ function getAttributes(pricing: PricingMetaData, planName: string): ibmAttribute
  * attributes:     | ibmAttributes
  * prices:         | Price[]
  *
- * @param services 
- * @returns 
+ * @param services
+ * @returns
  */
 function parseProducts(services: CatalogJson[]): Product[] {
   const products: Product[] = [];
   // for now, only grab USA, USD pricing
-  const country = 'USA'
-  const currency = 'USD'
+  const country = 'USA';
+  const currency = 'USD';
   services.forEach((service) => {
     Object.entries(service).forEach(([serviceId, plans]) => {
       if (!plans?.length) {
         return;
       }
       plans.forEach((plan) => {
-        Object.entries(plan).forEach(([planName, deployments]: [string, (CatalogJson | AmountsAndMetrics)[]]) => {
-          if (!deployments?.length) {
-            return;
-          }
-          deployments.forEach((deployment) => {
-            Object.entries(deployment).forEach(([, pricing]) => {
+        Object.entries(plan).forEach(
+          ([planName, deployments]: [
+            string,
+            (CatalogJson | AmountsAndMetrics)[]
+          ]) => {
+            if (!deployments?.length) {
+              return;
+            }
+            deployments.forEach((deployment) => {
+              Object.entries(deployment).forEach(([, pricing]) => {
                 const prices = getPrices(pricing?.[0], country, currency);
                 const attributes = getAttributes(pricing?.[0], planName);
                 const region = attributes?.region || country;
@@ -486,27 +534,109 @@ function parseProducts(services: CatalogJson[]): Product[] {
                     productFamily: 'service',
                     attributes,
                     prices,
-                  }
+                  };
                   p.productHash = generateProductHash(p);
-                  products.push(p)
+                  products.push(p);
                 }
+              });
             });
-          })
-        });
-      })
-    })
+          }
+        );
+      });
+    });
   });
   return products;
 }
 
+async function getCatalogEntries(
+  globalCatalog: GlobalCatalogV1
+): Promise<GlobalCatalogV1.CatalogEntry[]> {
+  const limit = 200;
+  let offset = 0;
+  let next = true;
+  const servicesArray = [];
+
+  while (next) {
+    const response = await globalCatalog.listCatalogEntries({
+      q: 'kind:service',
+      account: 'global',
+      limit,
+      offset,
+    });
+    if (response.result?.resources?.length) {
+      servicesArray.push(...response.result.resources);
+    }
+    if (!response.result.count || offset > response.result.count) {
+      next = false;
+    }
+    offset += limit;
+  }
+  return servicesArray;
+}
+
+type CatalogEntry = GlobalCatalogV1.CatalogEntry & {
+  children: CatalogEntry[];
+};
+
 async function scrape(): Promise<void> {
-  const start = queryCatalogItems.bind(null, serviceParams, parsePricingJson);
-  const results = await download(start);
+  const results = [];
+
+  const serviceEntries = await getCatalogEntries(client);
+  for (const service of serviceEntries) {
+    const serviceTree = (
+      await client.getCatalogEntry({
+        id: service.id as string,
+        depth: 3,
+        include: '*',
+      })
+    ).result as CatalogEntry;
+    for (const plan of serviceTree.children) {
+      for (const deployment of plan.children) {
+        try {
+          const pricingObjects = (
+            await client.getChildObjects({
+              id: deployment.id as string,
+              kind: 'pricing',
+            })
+          ).result.resources;
+          if (!pricingObjects) {
+            continue;
+          }
+          for (const pricing of pricingObjects) {
+            const country = 'USA';
+            const currency = 'USD';
+            const parsedPricing = parsePricingJson(pricing);
+            const prices = getPrices(parsedPricing?.[0], country, currency);
+            const attributes = getAttributes(parsedPricing?.[0], plan.name);
+            const region = attributes?.region || country;
+
+            if (prices?.length) {
+              const p = {
+                productHash: ``,
+                sku: `${serviceTree.name}-${plan.name}`,
+                vendorName: 'ibm',
+                region,
+                service: serviceTree.name,
+                productFamily: 'service',
+                attributes,
+                prices,
+              };
+              p.productHash = generateProductHash(p);
+              results.push(p);
+            }
+          }
+        } catch (e) {
+          config.logger.error(e);
+        }
+      }
+    }
+  }
+
   writeFile(filename, JSON.stringify(results, null, 2));
-  const products = parseProducts(results as CatalogJson[]);
-  writeFile('products.json', JSON.stringify(products, null, 2));
+  const products = parseProducts(results);
+  writeFile('products2.json', JSON.stringify(products, null, 2));
   await upsertProducts(products);
-  config.logger.info("-------- ALL DONE -------")
+  config.logger.info('-------- ALL DONE -------');
 }
 
 export default {
