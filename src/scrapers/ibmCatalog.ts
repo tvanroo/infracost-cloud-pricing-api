@@ -51,13 +51,12 @@ type AmountsRecord = Record<string, Record<string, GCPrice[]>>;
 type MetricsRecord = Record<string, Omit<UsageMetrics, 'amounts'>>;
 
 type AmountsAndMetrics = {
-  amounts: AmountsRecord;
-  metrics: MetricsRecord;
+  amounts?: AmountsRecord;
+  metrics?: MetricsRecord;
 };
 type PricingMetaData = AmountsAndMetrics & {
   type: string;
   region: string;
-  startingPrice: GCPrice;
 };
 
 export type Service = {
@@ -96,7 +95,9 @@ export type ibmAttributes = {
   region?: string;
 };
 
-const globalCatalogHierarchy: Record<string, string> = {
+type Kinds = 'service' | 'plan' | 'deployment' | 'iaas' | 'pricing';
+
+const globalCatalogHierarchy: { [K in Kinds]?: Kinds } = {
   service: 'plan',
   plan: 'deployment',
   deployment: 'pricing',
@@ -138,7 +139,6 @@ function parsePricingJson(
   const {
     type,
     deployment_location: region,
-    starting_price: startingPrice,
     metrics,
   } = pricingObject as RecursiveNonNullable<CompletePricingGet>;
 
@@ -146,7 +146,7 @@ function parsePricingJson(
   if (metrics?.length) {
     amountAndMetrics = metrics.reduce(
       (
-        collection: AmountsAndMetrics,
+        collection,
         metric: GlobalCatalogV1.Metrics
       ): AmountsAndMetrics => {
         const {
@@ -165,32 +165,38 @@ function parsePricingJson(
         if (!metricId) {
           return collection;
         }
-
+        
+        if (!collection.metrics) {
+          return collection;
+        }
         // eslint-disable-next-line no-param-reassign
-        collection.metrics[metricId] = {
-          tierModel,
-          chargeUnitName,
-          chargeUnit,
-          chargeUnitQty,
-          usageCapQty,
-          displayCap,
-          effectiveFrom,
-          effectiveUntil,
-        };
-        amounts?.forEach((amount) => {
-          if (amount?.prices?.length && amount?.country && amount?.currency) {
-            const key = `${amount.country}-${amount.currency}`;
-            if (collection.amounts[key]) {
-              // eslint-disable-next-line no-param-reassign
-              collection.amounts[key][metricId] = amount.prices as GCPrice[];
-            } else {
-              // eslint-disable-next-line no-param-reassign
-              collection.amounts[key] = {
-                [metricId]: amount.prices as GCPrice[],
-              };
+          collection.metrics[metricId] = {
+            tierModel,
+            chargeUnitName,
+            chargeUnit,
+            chargeUnitQty,
+            usageCapQty,
+            displayCap,
+            effectiveFrom,
+            effectiveUntil,
+          };
+          amounts?.forEach((amount) => {
+            if (amount?.prices?.length && amount?.country && amount?.currency) {
+              const key = `${amount.country}-${amount.currency}`;
+              if(!collection.amounts) {
+                return;
+              }
+              if (collection.amounts[key]) {
+                // eslint-disable-next-line no-param-reassign
+                collection.amounts[key][metricId] = amount.prices as GCPrice[];
+              } else {
+                // eslint-disable-next-line no-param-reassign
+                collection.amounts[key] = {
+                  [metricId]: amount.prices as GCPrice[],
+                };
+              }
             }
-          }
-        });
+          });
         return collection;
       },
       amountAndMetrics
@@ -198,15 +204,13 @@ function parsePricingJson(
     return {
       type,
       region,
-      startingPrice,
-      ...amountAndMetrics
-    } as unknown as PricingMetaData;
+      ...amountAndMetrics,
+    };
   }
   return {
     type,
     region,
-    startingPrice,
-  } as unknown as PricingMetaData;
+  };
 }
 
 // q: 'kind:service active:true price:paygo',
@@ -257,7 +261,7 @@ function getPrices(
   if (pricing) {
     const { metrics, amounts } = pricing;
 
-    if (!metrics) {
+    if (!metrics || !amounts) {
       return prices;
     }
     const geoKey = `${country}-${currency}`;
@@ -321,15 +325,11 @@ function getAttributes(
     return {};
   }
 
-  const { startingPrice, type, region } = pricing;
-
-  const { price: startPrice, quantity_tier: startQuantityTier } = startingPrice;
+  const { type, region } = pricing;
 
   const attributes: ibmAttributes = {
     planName,
     planType: type,
-    startPrice: String(startPrice),
-    startQuantityTier: String(startQuantityTier),
     region,
   };
 
@@ -487,7 +487,7 @@ async function scrape(): Promise<void> {
   }
   await writeFile(filename, JSON.stringify(results, null, 2));
   const products = parseProducts(results);
-  await writeFile('products.json', JSON.stringify(products, null, 2));
+  await writeFile('products2.json', JSON.stringify(products, null, 2));
   await upsertProducts(products);
   config.logger.info(`Ended IBM Cloud scraping at ${new Date()}`);
 }
