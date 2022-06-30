@@ -16,7 +16,12 @@ const client = GlobalCatalogV1.newInstance({
   }),
 });
 
-const filename = `data/ibm-catalog.json`;
+const saasFileName = `data/ibm-catalog-saas.json`;
+const iaasFileName = `data/ibm-catalog-iaas.json`;
+
+type RecursiveNonNullable<T> = {
+  [K in keyof T]-?: RecursiveNonNullable<NonNullable<T[K]>>;
+};
 
 type CatalogEntry = GlobalCatalogV1.CatalogEntry & {
   children: CatalogEntry[];
@@ -54,6 +59,7 @@ type AmountsAndMetrics = {
   amounts?: AmountsRecord;
   metrics?: MetricsRecord;
 };
+
 type PricingMetaData = AmountsAndMetrics & {
   type: string;
   region: string;
@@ -95,19 +101,6 @@ export type ibmAttributes = {
   region?: string;
 };
 
-type Kinds = 'service' | 'plan' | 'deployment' | 'iaas' | 'pricing';
-
-const globalCatalogHierarchy: { [K in Kinds]?: Kinds } = {
-  service: 'plan',
-  plan: 'deployment',
-  deployment: 'pricing',
-  iaas: 'iaas',
-};
-
-type RecursiveNonNullable<T> = {
-  [K in keyof T]-?: RecursiveNonNullable<NonNullable<T[K]>>;
-};
-
 /**
  * Flattens the tree of pricing info for a plan, as each plan can describe multiple charge models (Metric).
  * A charge model describes the pricing model (tier), the unit, a quantity, and the part number to charge against.
@@ -145,10 +138,7 @@ function parsePricingJson(
   let amountAndMetrics: AmountsAndMetrics = { amounts: {}, metrics: {} };
   if (metrics?.length) {
     amountAndMetrics = metrics.reduce(
-      (
-        collection,
-        metric: GlobalCatalogV1.Metrics
-      ): AmountsAndMetrics => {
+      (collection, metric: GlobalCatalogV1.Metrics): AmountsAndMetrics => {
         const {
           metric_id: metricId,
           amounts,
@@ -165,38 +155,38 @@ function parsePricingJson(
         if (!metricId) {
           return collection;
         }
-        
+
         if (!collection.metrics) {
           return collection;
         }
         // eslint-disable-next-line no-param-reassign
-          collection.metrics[metricId] = {
-            tierModel,
-            chargeUnitName,
-            chargeUnit,
-            chargeUnitQty,
-            usageCapQty,
-            displayCap,
-            effectiveFrom,
-            effectiveUntil,
-          };
-          amounts?.forEach((amount) => {
-            if (amount?.prices?.length && amount?.country && amount?.currency) {
-              const key = `${amount.country}-${amount.currency}`;
-              if(!collection.amounts) {
-                return;
-              }
-              if (collection.amounts[key]) {
-                // eslint-disable-next-line no-param-reassign
-                collection.amounts[key][metricId] = amount.prices as GCPrice[];
-              } else {
-                // eslint-disable-next-line no-param-reassign
-                collection.amounts[key] = {
-                  [metricId]: amount.prices as GCPrice[],
-                };
-              }
+        collection.metrics[metricId] = {
+          tierModel,
+          chargeUnitName,
+          chargeUnit,
+          chargeUnitQty,
+          usageCapQty,
+          displayCap,
+          effectiveFrom,
+          effectiveUntil,
+        };
+        amounts?.forEach((amount) => {
+          if (amount?.prices?.length && amount?.country && amount?.currency) {
+            const key = `${amount.country}-${amount.currency}`;
+            if (!collection.amounts) {
+              return;
             }
-          });
+            if (collection.amounts[key]) {
+              // eslint-disable-next-line no-param-reassign
+              collection.amounts[key][metricId] = amount.prices as GCPrice[];
+            } else {
+              // eslint-disable-next-line no-param-reassign
+              collection.amounts[key] = {
+                [metricId]: amount.prices as GCPrice[],
+              };
+            }
+          }
+        });
         return collection;
       },
       amountAndMetrics
@@ -212,18 +202,6 @@ function parsePricingJson(
     region,
   };
 }
-
-// q: 'kind:service active:true price:paygo',
-const serviceParams = {
-  q: 'kind:service active:true',
-  include: 'id:geo_tags:kind:name:pricing_tags',
-};
-
-const infrastuctureQuery = {
-  q: 'kind:iaas active:true',
-  limit: 5,
-  include: 'id:geo_tags:kind:name:pricing_tags',
-};
 
 /**
  * Price Mapping:
@@ -336,6 +314,21 @@ function getAttributes(
   return attributes;
 }
 
+/*
+  service (group) - optional
+  |
+  |
+  | 0..n
+   - - - > service
+           |
+           | 
+           | 0..n
+            - - - > plan -> pricing might be here too, if not region specific
+                   |
+                   | 
+                   | 0..n
+                    - - - > deployment -> pricing might be here, if deployment specific <- pricing on previous level will be returned here too
+*/
 /**
  * Global Catalog is an hierarchy of things, of which we are interested in 'services' and 'iaas' kinds on the root.
  *
@@ -378,32 +371,37 @@ function parseProducts(services: CatalogEntry[]): Product[] {
   const currency = 'USD';
   for (const service of services) {
     if (service.children) {
-      for (const plan of service.children) {
-        if (plan.children) {
-          for (const deployment of plan.children) {
-            if (deployment.pricingChildren) {
-              for (const pricing of deployment.pricingChildren) {
-                const processedPricing = parsePricingJson(pricing);
-                if (!processedPricing) {
-                  continue;
-                }
-                const prices = getPrices(processedPricing, country, currency);
-                const attributes = getAttributes(processedPricing, plan.name);
-                const region = attributes?.region || country;
+      if (service.group) {
+        const productsOfGroup = parseProducts(service.children);
+        products.push(...productsOfGroup);
+      } else {
+        for (const plan of service.children) {
+          if (plan.children) {
+            for (const deployment of plan.children) {
+              if (deployment.pricingChildren) {
+                for (const pricing of deployment.pricingChildren) {
+                  const processedPricing = parsePricingJson(pricing);
+                  if (!processedPricing) {
+                    continue;
+                  }
+                  const prices = getPrices(processedPricing, country, currency);
+                  const attributes = getAttributes(processedPricing, plan.name);
+                  const region = attributes?.region || country;
 
-                if (prices?.length) {
-                  const p = {
-                    productHash: ``,
-                    sku: `${service.name}-${plan.name}`,
-                    vendorName: 'ibm',
-                    region,
-                    service: service.name,
-                    productFamily: 'service',
-                    attributes,
-                    prices,
-                  };
-                  p.productHash = generateProductHash(p);
-                  products.push(p);
+                  if (prices?.length) {
+                    const p = {
+                      productHash: ``,
+                      sku: `${service.name}-${plan.name}`,
+                      vendorName: 'ibm',
+                      region,
+                      service: service.name,
+                      productFamily: 'service',
+                      attributes,
+                      prices,
+                    };
+                    p.productHash = generateProductHash(p);
+                    products.push(p);
+                  }
                 }
               }
             }
@@ -415,8 +413,95 @@ function parseProducts(services: CatalogEntry[]): Product[] {
   return products;
 }
 
+/*
+  iaas (group) - optional
+  |
+  |
+  | 0..n
+   - - - > iaas
+           |
+           | 
+           | 0..n
+            - - - > plan - possibly priced (for satellite i.e cos satellite plan)
+                    |
+                    |
+                    | 0..n
+                     - - - > deployment - possibly  priced
+                             |
+                             |
+                             | 0..n
+                              - - - > plan - possibly priced
+                                      |
+                                      |
+                                      | 0..n
+                                       - - - > deployment - possibly priced
+*/
+function parseIaaSProducts(infrastructure: CatalogEntry[]): Product[] {
+  const products: Product[] = [];
+  // for now, only grab USA, USD pricing
+  const country = 'USA';
+  const currency = 'USD';
+  for (const iaas of infrastructure) {
+    if (iaas.children) {
+      if (iaas.group) {
+        const productsOfGroup = parseIaaSProducts(iaas.children);
+        products.push(...productsOfGroup);
+      } else {
+        for (const plan of iaas.children) {
+          if (plan.children) {
+            for (const deployment of plan.children) {
+              if (deployment.pricingChildren) {
+                for (const pricing of deployment.pricingChildren) {
+                  const processedPricing = parsePricingJson(pricing);
+                  if (!processedPricing) {
+                    continue;
+                  }
+                  const prices = getPrices(processedPricing, country, currency);
+                  const attributes = getAttributes(processedPricing, plan.name);
+                  const region = attributes?.region || country;
+
+                  if (prices?.length) {
+                    const p = {
+                      productHash: ``,
+                      sku: `${iaas.name}-${plan.name}`,
+                      vendorName: 'ibm',
+                      region,
+                      service: iaas.name,
+                      productFamily: 'iaas',
+                      attributes,
+                      prices,
+                    };
+                    p.productHash = generateProductHash(p);
+                    products.push(p);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return products;
+}
+
+// q: 'kind:service active:true price:paygo',
+const serviceParams = {
+  q: 'kind:service active:true',
+  include: 'id:geo_tags:kind:name:pricing_tags:tags',
+};
+
+const infrastuctureParams = {
+  q: 'kind:iaas active:true',
+  include: 'id:geo_tags:kind:name:pricing_tags:tags',
+};
+
 async function getCatalogEntries(
-  globalCatalog: GlobalCatalogV1
+  globalCatalog: GlobalCatalogV1,
+  params: Pick<
+    GlobalCatalogV1.ListCatalogEntriesParams,
+    'account' | 'q' | 'include'
+  >
 ): Promise<GlobalCatalogV1.CatalogEntry[]> {
   const limit = 200;
   let offset = 0;
@@ -425,9 +510,7 @@ async function getCatalogEntries(
 
   while (next) {
     const response = await globalCatalog.listCatalogEntries({
-      q: 'kind:service active:true',
-      include: 'id:geo_tags:kind:name:pricing_tags',
-      account: 'global',
+      ...params,
       limit,
       offset,
     });
@@ -442,53 +525,103 @@ async function getCatalogEntries(
   return servicesArray;
 }
 
-async function scrape(): Promise<void> {
-  config.logger.info(`Started IBM Cloud scraping at ${new Date()}`);
-  const results: CatalogEntry[] = [];
-  const serviceEntries = await getCatalogEntries(client);
-  for (const service of serviceEntries) {
-    config.logger.info(`Scraping pricing for ${service.name}`);
-    const serviceEntryTree = (
-      await client.getCatalogEntry({
-        id: service.id as string,
-        depth: 3,
-        include: 'children:kind:tags:geo_tags:pricing_tags:name',
-      })
-    ).result as CatalogEntry;
-    if (serviceEntryTree.children) {
-      for (const plan of serviceEntryTree.children) {
-        if (plan.children) {
-          const chunks = _.chunk(plan.children, 5);
-          for (const deployments of chunks) {
-            await Promise.all(
-              deployments.map(async (deployment): Promise<void> => {
-                try {
-                  const pricingObject = (
-                    await client.getChildObjects({
-                      id: deployment.id as string,
-                      kind: 'pricing',
-                    })
-                  ).result as PricingGet;
-                  if (!pricingObject) {
-                    return;
-                  }
-                  // eslint-disable-next-line no-param-reassign
-                  deployment.pricingChildren = [pricingObject];
-                } catch (e) {
-                  config.logger.info(e?.message);
-                }
-              })
-            );
-          }
-        }
+async function fetchPricingForProduct(
+  client: GlobalCatalogV1,
+  product: GlobalCatalogV1.CatalogEntry
+): Promise<CatalogEntry> {
+  const tree = (
+    await client.getCatalogEntry({
+      id: product.id as string,
+      depth: 10,
+      include: 'id:kind:name:tags:pricing_tags:geo_tags:meatadata',
+    })
+  ).result as CatalogEntry;
+  const stack = [tree];
+  while (stack.length > 0) {
+    // Couldn't get here if the were no elems on the stack
+    const currentElem = stack.pop() as CatalogEntry;
+    // For example satellite located deployments area also priced on the plan level
+    if (currentElem.kind === 'plan' && currentElem.children) {
+      const deploymentChildren = currentElem.children.filter(
+        (child) => child.kind === 'deployment'
+      );
+      const chunks = _.chunk([currentElem, ...deploymentChildren], 8);
+      for (const elements of chunks) {
+        await Promise.all(
+          elements.map(async (element): Promise<void> => {
+            try {
+              const pricingObject = (
+                await client.getChildObjects({
+                  id: element.id as string,
+                  kind: 'pricing',
+                })
+              ).result as PricingGet;
+              if (!pricingObject) {
+                return;
+              }
+              // eslint-disable-next-line no-param-reassign
+              element.pricingChildren = [pricingObject];
+            } catch (e) {
+              if (!e?.code || e?.code !== 404) {
+                config.logger.error(e?.message);
+              }
+            }
+          })
+        );
       }
     }
-    results.push(serviceEntryTree);
+    if (currentElem.children && currentElem.children.length > 0) {
+      for (const child of currentElem.children) {
+        stack.push(child);
+      }
+    }
   }
-  await writeFile(filename, JSON.stringify(results, null, 2));
-  const products = parseProducts(results);
-  await writeFile('products2.json', JSON.stringify(products, null, 2));
-  await upsertProducts(products);
+  return tree;
+}
+
+async function scrape(): Promise<void> {
+  config.logger.info(`Started IBM Cloud scraping at ${new Date()}`);
+  const saasResults: CatalogEntry[] = [];
+  const iaasResults: CatalogEntry[] = [];
+
+  const serviceEntries = await getCatalogEntries(client, {
+    ...serviceParams,
+    account: 'global',
+  });
+
+  for (const service of serviceEntries) {
+    config.logger.info(`Scraping pricing for ${service.name}`);
+    const tree = await fetchPricingForProduct(client, service);
+    saasResults.push(tree);
+  }
+  await writeFile(saasFileName, JSON.stringify(saasResults, null, 2));
+  const saasProducts = parseProducts(saasResults);
+  await writeFile(
+    'ibm-saas-products.json',
+    JSON.stringify(saasProducts, null, 2)
+  );
+
+  const infrastructureEntries = await getCatalogEntries(client, {
+    ...infrastuctureParams,
+    account: 'global',
+  });
+
+  for (const infra of infrastructureEntries) {
+    config.logger.info(`Scraping pricing for ${infra.name}`);
+    const tree = await fetchPricingForProduct(client, infra);
+    iaasResults.push(tree);
+  }
+
+  await writeFile(iaasFileName, JSON.stringify(iaasResults, null, 2));
+  const iaasProducts = parseIaaSProducts(iaasResults);
+  await writeFile(
+    'ibm-iaas-products.json',
+    JSON.stringify(iaasProducts, null, 2)
+  );
+
+  await upsertProducts(saasProducts);
+  await upsertProducts(iaasProducts);
+
   config.logger.info(`Ended IBM Cloud scraping at ${new Date()}`);
 }
 
