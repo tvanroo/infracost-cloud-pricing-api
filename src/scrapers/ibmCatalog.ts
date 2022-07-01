@@ -629,7 +629,7 @@ async function scrape(): Promise<void> {
   await writeFile(saasFileName, JSON.stringify(saasResults, null, 2));
   const saasProducts = parseProducts(saasResults);
   await writeFile(
-    'ibm-saas-products4.json',
+    'ibm-saas-products.json',
     JSON.stringify(saasProducts, null, 2)
   );
 
@@ -650,7 +650,7 @@ async function scrape(): Promise<void> {
   await writeFile(iaasFileName, JSON.stringify(iaasResults, null, 2));
   const iaasProducts = parseIaaSProducts(iaasResults);
   await writeFile(
-    'ibm-iaas-products4.json',
+    'ibm-iaas-products.json',
     JSON.stringify(iaasProducts, null, 2)
   );
 
