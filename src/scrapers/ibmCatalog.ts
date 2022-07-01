@@ -443,36 +443,53 @@ function parseIaaSProducts(infrastructure: CatalogEntry[]): Product[] {
         products.push(...productsOfGroup);
       } else {
         for (const plan of iaas.children) {
-          if (plan.children) {
-            for (const deployment of plan.children) {
-              if (deployment.pricingChildren) {
-                for (const pricing of deployment.pricingChildren) {
-                  const processedPricing = parsePricingJson(pricing);
-                  if (!processedPricing) {
-                    continue;
-                  }
-                  const prices = getPrices(processedPricing, country, currency);
-                  const attributes = getAttributes(processedPricing, plan.name);
-                  const region = attributes?.region || country;
+          const walkPlan = (plan: CatalogEntry) => {
+            if (plan.kind === 'plan') {
+              if (plan.children) {
+                for (const deployment of plan.children) {
+                  if (deployment.pricingChildren) {
+                    for (const pricing of deployment.pricingChildren) {
+                      const processedPricing = parsePricingJson(pricing);
+                      if (!processedPricing) {
+                        continue;
+                      }
+                      const prices = getPrices(
+                        processedPricing,
+                        country,
+                        currency
+                      );
+                      const attributes = getAttributes(
+                        processedPricing,
+                        plan.name
+                      );
+                      const region = attributes?.region || country;
 
-                  if (prices?.length) {
-                    const p = {
-                      productHash: ``,
-                      sku: `${iaas.name}-${plan.name}`,
-                      vendorName: 'ibm',
-                      region,
-                      service: iaas.name,
-                      productFamily: 'iaas',
-                      attributes,
-                      prices,
-                    };
-                    p.productHash = generateProductHash(p);
-                    products.push(p);
+                      if (prices?.length) {
+                        const p = {
+                          productHash: ``,
+                          sku: `${iaas.name}-${plan.name}`,
+                          vendorName: 'ibm',
+                          region,
+                          service: iaas.name,
+                          productFamily: 'iaas',
+                          attributes,
+                          prices,
+                        };
+                        p.productHash = generateProductHash(p);
+                        products.push(p);
+                      }
+                    }
+                  }
+                  if (deployment.children) {
+                    for (const child of deployment.children) {
+                      walkPlan(child);
+                    }
                   }
                 }
               }
             }
-          }
+          };
+          walkPlan(plan);
         }
       }
     }
@@ -550,7 +567,7 @@ async function fetchPricingForProduct(
       const deploymentChildren = currentElem.children.filter(
         (child) => child.kind === 'deployment'
       );
-      const chunks = _.chunk([currentElem, ...deploymentChildren], 8);
+      const chunks = _.chunk(deploymentChildren, 8);
       for (const elements of chunks) {
         await Promise.all(
           elements.map(async (element): Promise<void> => {
@@ -566,7 +583,7 @@ async function fetchPricingForProduct(
             } catch (e) {
               if (axios.isAxiosError(e)) {
                 if (!e?.response?.status || e?.response?.status !== 404) {
-                  config.logger.error(e);
+                  config.logger.error(e.message);
                 }
               } else if (e instanceof Error) {
                 config.logger.error(e.message);
