@@ -1,23 +1,19 @@
 import GlobalCatalogV1, {
   PricingGet,
 } from '@ibm-cloud/platform-services/global-catalog/v1';
-import { IamAuthenticator } from '@ibm-cloud/platform-services/auth';
+import { IamTokenManager } from '@ibm-cloud/platform-services/auth';
 import { writeFile } from 'fs/promises';
 import _ from 'lodash';
+import axios, { AxiosInstance } from 'axios';
 
 import { Product, Price } from '../db/types';
 import { generateProductHash } from '../db/helpers';
 import { upsertProducts } from '../db/upsert';
 import config from '../config';
 
-const client = GlobalCatalogV1.newInstance({
-  authenticator: new IamAuthenticator({
-    apikey: config.ibmCloudApiKey as string,
-  }),
-});
-
 const saasFileName = `data/ibm-catalog-saas.json`;
 const iaasFileName = `data/ibm-catalog-iaas.json`;
+const baseURL = 'https://globalcatalog.cloud.ibm.com/api/v1';
 
 type RecursiveNonNullable<T> = {
   [K in keyof T]-?: RecursiveNonNullable<NonNullable<T[K]>>;
@@ -346,8 +342,7 @@ function getAttributes(
  *         - unit
  *         - effective dates
  *
- *  | iaas
- *    -
+ *
  *
  * Product Mapping:
  * DB:             | CatalogJson:
@@ -489,15 +484,17 @@ function parseIaaSProducts(infrastructure: CatalogEntry[]): Product[] {
 const serviceParams = {
   q: 'kind:service active:true',
   include: 'id:geo_tags:kind:name:pricing_tags:tags',
+  account: 'global',
 };
 
 const infrastuctureParams = {
   q: 'kind:iaas active:true',
   include: 'id:geo_tags:kind:name:pricing_tags:tags',
+  account: 'global',
 };
 
 async function getCatalogEntries(
-  globalCatalog: GlobalCatalogV1,
+  axiosClient: AxiosInstance,
   params: Pick<
     GlobalCatalogV1.ListCatalogEntriesParams,
     'account' | 'q' | 'include'
@@ -509,15 +506,20 @@ async function getCatalogEntries(
   const servicesArray = [];
 
   while (next) {
-    const response = await globalCatalog.listCatalogEntries({
-      ...params,
-      limit,
-      offset,
+    const { data: response } = await axiosClient.get<{
+      count: number;
+      resources: CatalogEntry[];
+    }>('/', {
+      params: {
+        ...params,
+        _limit: limit,
+        _offset: offset,
+      },
     });
-    if (response.result?.resources?.length) {
-      servicesArray.push(...response.result.resources);
+    if (response.resources?.length) {
+      servicesArray.push(...response.resources);
     }
-    if (!response.result.count || offset > response.result.count) {
+    if (!response.count || offset > response.count) {
       next = false;
     }
     offset += limit;
@@ -526,16 +528,19 @@ async function getCatalogEntries(
 }
 
 async function fetchPricingForProduct(
-  client: GlobalCatalogV1,
+  axiosClient: AxiosInstance,
   product: GlobalCatalogV1.CatalogEntry
 ): Promise<CatalogEntry> {
-  const tree = (
-    await client.getCatalogEntry({
-      id: product.id as string,
-      depth: 10,
-      include: 'id:kind:name:tags:pricing_tags:geo_tags:meatadata',
-    })
-  ).result as CatalogEntry;
+  const { data: tree } = await axiosClient.get<CatalogEntry>(
+    `/${product.id as string}`,
+    {
+      params: {
+        noLocations: true,
+        depth: 10,
+        include: 'id:kind:name:tags:pricing_tags:geo_tags:meatadata',
+      },
+    }
+  );
   const stack = [tree];
   while (stack.length > 0) {
     // Couldn't get here if the were no elems on the stack
@@ -550,20 +555,23 @@ async function fetchPricingForProduct(
         await Promise.all(
           elements.map(async (element): Promise<void> => {
             try {
-              const pricingObject = (
-                await client.getChildObjects({
-                  id: element.id as string,
-                  kind: 'pricing',
-                })
-              ).result as PricingGet;
+              const { data: pricingObject } = await axiosClient.get<PricingGet>(
+                `/${element.id}/pricing`
+              );
               if (!pricingObject) {
                 return;
               }
               // eslint-disable-next-line no-param-reassign
               element.pricingChildren = [pricingObject];
             } catch (e) {
-              if (!e?.code || e?.code !== 404) {
-                config.logger.error(e?.message);
+              if (axios.isAxiosError(e)) {
+                if (!e?.response?.status || e?.response?.status !== 404) {
+                  config.logger.error(e);
+                }
+              } else if (e instanceof Error) {
+                config.logger.error(e.message);
+              } else {
+                config.logger.error(e);
               }
             }
           })
@@ -584,15 +592,30 @@ async function scrape(): Promise<void> {
   const saasResults: CatalogEntry[] = [];
   const iaasResults: CatalogEntry[] = [];
 
-  const serviceEntries = await getCatalogEntries(client, {
+  const tokenManager = new IamTokenManager({
+    apikey: config.ibmCloudApiKey as string,
+  });
+
+  // We won't need token refreshing
+  const axiosClient = axios.create({
+    baseURL,
+    headers: {
+      Authorization: `Bearer ${await tokenManager.getToken()}`,
+    },
+  });
+
+  config.logger.info('Fetching Service products...');
+
+  const serviceEntries = await getCatalogEntries(axiosClient, {
     ...serviceParams,
-    account: 'global',
   });
 
   for (const service of serviceEntries) {
-    config.logger.info(`Scraping pricing for ${service.name}`);
-    const tree = await fetchPricingForProduct(client, service);
-    saasResults.push(tree);
+    if (service.kind === 'service') {
+      config.logger.info(`Scraping pricing for ${service.name}`);
+      const tree = await fetchPricingForProduct(axiosClient, service);
+      saasResults.push(tree);
+    }
   }
   await writeFile(saasFileName, JSON.stringify(saasResults, null, 2));
   const saasProducts = parseProducts(saasResults);
@@ -601,15 +624,18 @@ async function scrape(): Promise<void> {
     JSON.stringify(saasProducts, null, 2)
   );
 
-  const infrastructureEntries = await getCatalogEntries(client, {
+  config.logger.info('Fetching Infrastructure products...');
+
+  const infrastructureEntries = await getCatalogEntries(axiosClient, {
     ...infrastuctureParams,
-    account: 'global',
   });
 
   for (const infra of infrastructureEntries) {
-    config.logger.info(`Scraping pricing for ${infra.name}`);
-    const tree = await fetchPricingForProduct(client, infra);
-    iaasResults.push(tree);
+    if (infra.kind === 'iaas') {
+      config.logger.info(`Scraping pricing for ${infra.name}`);
+      const tree = await fetchPricingForProduct(axiosClient, infra);
+      iaasResults.push(tree);
+    }
   }
 
   await writeFile(iaasFileName, JSON.stringify(iaasResults, null, 2));
