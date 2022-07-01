@@ -310,6 +310,41 @@ function getAttributes(
   return attributes;
 }
 
+function collectPriceComponents(
+  product: CatalogEntry,
+  plan: CatalogEntry,
+  pricing: PricingGet,
+  productFamily: string
+): Product[] {
+  const products: Product[] = [];
+  // for now, only grab USA, USD pricing
+  const country = 'USA';
+  const currency = 'USD';
+  const processedPricing = parsePricingJson(pricing);
+  if (!processedPricing) {
+    return products;
+  }
+  const prices = getPrices(processedPricing, country, currency);
+  const attributes = getAttributes(processedPricing, plan.name);
+  const region = attributes?.region || country;
+
+  if (prices?.length) {
+    const p = {
+      productHash: ``,
+      sku: `${product.name}-${plan.name}`,
+      vendorName: 'ibm',
+      region,
+      service: product.name,
+      productFamily,
+      attributes,
+      prices,
+    };
+    p.productHash = generateProductHash(p);
+    products.push(p);
+  }
+  return products;
+}
+
 /*
   service (group) - optional
   |
@@ -361,9 +396,6 @@ function getAttributes(
  */
 function parseProducts(services: CatalogEntry[]): Product[] {
   const products: Product[] = [];
-  // for now, only grab USA, USD pricing
-  const country = 'USA';
-  const currency = 'USD';
   for (const service of services) {
     if (service.children) {
       if (service.group) {
@@ -375,28 +407,13 @@ function parseProducts(services: CatalogEntry[]): Product[] {
             for (const deployment of plan.children) {
               if (deployment.pricingChildren) {
                 for (const pricing of deployment.pricingChildren) {
-                  const processedPricing = parsePricingJson(pricing);
-                  if (!processedPricing) {
-                    continue;
-                  }
-                  const prices = getPrices(processedPricing, country, currency);
-                  const attributes = getAttributes(processedPricing, plan.name);
-                  const region = attributes?.region || country;
-
-                  if (prices?.length) {
-                    const p = {
-                      productHash: ``,
-                      sku: `${service.name}-${plan.name}`,
-                      vendorName: 'ibm',
-                      region,
-                      service: service.name,
-                      productFamily: 'service',
-                      attributes,
-                      prices,
-                    };
-                    p.productHash = generateProductHash(p);
-                    products.push(p);
-                  }
+                  const results = collectPriceComponents(
+                    service,
+                    plan,
+                    pricing,
+                    'service'
+                  );
+                  products.push(...results);
                 }
               }
             }
@@ -433,9 +450,6 @@ function parseProducts(services: CatalogEntry[]): Product[] {
 */
 function parseIaaSProducts(infrastructure: CatalogEntry[]): Product[] {
   const products: Product[] = [];
-  // for now, only grab USA, USD pricing
-  const country = 'USA';
-  const currency = 'USD';
   for (const iaas of infrastructure) {
     if (iaas.children) {
       if (iaas.group) {
@@ -449,35 +463,13 @@ function parseIaaSProducts(infrastructure: CatalogEntry[]): Product[] {
                 for (const deployment of plan.children) {
                   if (deployment.pricingChildren) {
                     for (const pricing of deployment.pricingChildren) {
-                      const processedPricing = parsePricingJson(pricing);
-                      if (!processedPricing) {
-                        continue;
-                      }
-                      const prices = getPrices(
-                        processedPricing,
-                        country,
-                        currency
+                      const results = collectPriceComponents(
+                        iaas,
+                        plan,
+                        pricing,
+                        'iaas'
                       );
-                      const attributes = getAttributes(
-                        processedPricing,
-                        plan.name
-                      );
-                      const region = attributes?.region || country;
-
-                      if (prices?.length) {
-                        const p = {
-                          productHash: ``,
-                          sku: `${iaas.name}-${plan.name}`,
-                          vendorName: 'ibm',
-                          region,
-                          service: iaas.name,
-                          productFamily: 'iaas',
-                          attributes,
-                          prices,
-                        };
-                        p.productHash = generateProductHash(p);
-                        products.push(p);
-                      }
+                      products.push(...results);
                     }
                   }
                   if (deployment.children) {
@@ -637,7 +629,7 @@ async function scrape(): Promise<void> {
   await writeFile(saasFileName, JSON.stringify(saasResults, null, 2));
   const saasProducts = parseProducts(saasResults);
   await writeFile(
-    'ibm-saas-products.json',
+    'ibm-saas-products4.json',
     JSON.stringify(saasProducts, null, 2)
   );
 
@@ -658,7 +650,7 @@ async function scrape(): Promise<void> {
   await writeFile(iaasFileName, JSON.stringify(iaasResults, null, 2));
   const iaasProducts = parseIaaSProducts(iaasResults);
   await writeFile(
-    'ibm-iaas-products.json',
+    'ibm-iaas-products4.json',
     JSON.stringify(iaasProducts, null, 2)
   );
 
