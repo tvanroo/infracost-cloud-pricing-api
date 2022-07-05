@@ -5,7 +5,7 @@ import { IamAuthenticator } from '@ibm-cloud/platform-services/auth';
 import { writeFile } from 'fs/promises';
 import _ from 'lodash';
 
-import { Product, Price } from '../db/types';
+import type { Product, Price } from '../db/types';
 import { generateProductHash } from '../db/helpers';
 import { upsertProducts } from '../db/upsert';
 import config from '../config';
@@ -475,7 +475,11 @@ async function scrape(): Promise<void> {
                   // eslint-disable-next-line no-param-reassign
                   deployment.pricingChildren = [pricingObject];
                 } catch (e) {
-                  config.logger.info(e?.message);
+                  if(e instanceof Error) {
+                    config.logger.error(e.message);
+                  } else {
+                    config.logger.error(e);
+                  }
                 }
               })
             );
