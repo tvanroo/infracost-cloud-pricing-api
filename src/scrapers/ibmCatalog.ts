@@ -6,7 +6,7 @@ import { writeFile } from 'fs/promises';
 import _ from 'lodash';
 import axios, { AxiosInstance } from 'axios';
 
-import { Product, Price } from '../db/types';
+import type { Product, Price } from '../db/types';
 import { generateProductHash } from '../db/helpers';
 import { upsertProducts } from '../db/upsert';
 import config from '../config';
@@ -620,6 +620,7 @@ async function scrape(): Promise<void> {
       saasResults.push(tree);
     }
   }
+
   await writeFile(saasDataFileName, JSON.stringify(saasResults, null, 2));
   const saasProducts = parseProducts(saasResults);
   await writeFile(saasProductFileName, JSON.stringify(saasProducts, null, 2));
