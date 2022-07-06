@@ -11,8 +11,12 @@ import { generateProductHash } from '../db/helpers';
 import { upsertProducts } from '../db/upsert';
 import config from '../config';
 
-const saasFileName = `data/ibm-catalog-saas.json`;
-const iaasFileName = `data/ibm-catalog-iaas.json`;
+const saasDataFileName = `data/ibm-catalog-saas.json`;
+const saasProductFileName = `data/ibm-catalog-saas-products.json`;
+
+const iaasDataFileName = `data/ibm-catalog-iaas.json`;
+const iaasProductFileName = `data/ibm-catalog-iaas-products.json`;
+
 const baseURL = 'https://globalcatalog.cloud.ibm.com/api/v1';
 
 const skipList = [
@@ -349,26 +353,51 @@ function collectPriceComponents(
   return products;
 }
 
-/*
-  service (group) - optional
-  |
-  |
-  | 0..n
-   - - - > service
-           |
-           | 
-           | 0..n
-            - - - > plan -> pricing might be here too, if not region specific
-                   |
-                   | 
-                   | 0..n
-                    - - - > deployment -> pricing might be here, if deployment specific <- pricing on previous level will be returned here too
-*/
 /**
+ * SaaS grouping
+ *
+ * service (group) - optional
+ *  |
+ *  |
+ *  | 0..n
+ *   - - - > service
+ *           |
+ *           |
+ *           | 0..n
+ *            - - - > plan -> pricing might be here too, if not region specific
+ *                   |
+ *                   |
+ *                   | 0..n
+ *                    - - - > deployment -> pricing might be here, if deployment specific <- pricing on previous level will be returned here too
+ *
+ *  IaaS grouping
+ *
+ *  iaas (group) - optional
+ *  |
+ *  |
+ *  | 0..n
+ *   - - - > iaas
+ *           |
+ *           |
+ *           | 0..n
+ *            - - - > plan - possibly priced (for satellite i.e cos satellite plan)
+ *                    |
+ *                    |
+ *                    | 0..n
+ *                     - - - > deployment - possibly  priced
+ *                             |
+ *                             |
+ *                             | 0..n
+ *                              - - - > plan - possibly priced
+ *                                      |
+ *                         s             |
+ *                                      | 0..n
+ *                                       - - - > deployment - possibly priced
+ *
  * Global Catalog is an hierarchy of things, of which we are interested in 'services' and 'iaas' kinds on the root.
  *
  * Root:
- * | service
+ * | xaas
  *   - plans []
  *     - deployments [] (by region)
  *       - region
@@ -391,83 +420,35 @@ function collectPriceComponents(
  * vendorName:     | 'ibm'
  * region:         | PricingMetaData.region || country
  * service:        | serviceName
- * productFamily:  | 'service'
+ * productFamily:  | 'service' || 'iaas'
  * attributes:     | ibmAttributes
  * prices:         | Price[]
  *
- * @param services
+ * @param entries
+ * @param productFamily
  * @returns
  */
-function parseProducts(services: CatalogEntry[]): Product[] {
+function parseProducts(
+  entries: CatalogEntry[],
+  productFamily?: string
+): Product[] {
   const products: Product[] = [];
-  for (const service of services) {
-    if (service.children) {
-      if (service.group) {
-        const productsOfGroup = parseProducts(service.children);
-        products.push(...productsOfGroup);
-      } else {
-        for (const plan of service.children) {
-          if (plan.children) {
-            for (const deployment of plan.children) {
-              if (deployment.pricingChildren) {
-                for (const pricing of deployment.pricingChildren) {
-                  const results = collectPriceComponents(
-                    service,
-                    plan,
-                    pricing,
-                    'service'
-                  );
-                  products.push(...results);
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-  return products;
-}
-
-/*
-  iaas (group) - optional
-  |
-  |
-  | 0..n
-   - - - > iaas
-           |
-           | 
-           | 0..n
-            - - - > plan - possibly priced (for satellite i.e cos satellite plan)
-                    |
-                    |
-                    | 0..n
-                     - - - > deployment - possibly  priced
-                             |
-                             |
-                             | 0..n
-                              - - - > plan - possibly priced
-                                      |
-                                      |
-                                      | 0..n
-                                       - - - > deployment - possibly priced
-*/
-function parseIaaSProducts(infrastructure: CatalogEntry[]): Product[] {
-  const products: Product[] = [];
-  for (const iaas of infrastructure) {
-    const categorizedChildren = iaas?.children?.reduce(
-      (acc: { iaas: CatalogEntry[]; other: CatalogEntry[] }, child) => {
+  for (const entry of entries) {
+    const categorizedChildren = entry?.children?.reduce(
+      (acc: { xaas: CatalogEntry[]; other: CatalogEntry[] }, child) => {
         if (child.kind === 'iaas' || child.kind === 'service') {
-          acc.iaas.push(child);
+          acc.xaas.push(child);
         } else {
           acc.other.push(child);
         }
         return acc;
       },
-      { iaas: [], other: [] }
+      { xaas: [], other: [] }
     );
-    if (categorizedChildren?.iaas?.length > 0) {
-      products.push(...parseIaaSProducts(categorizedChildren.iaas));
+    if (categorizedChildren?.xaas?.length > 0) {
+      products.push(
+        ...parseProducts(categorizedChildren.xaas, productFamily || entry.kind)
+      );
     }
     if (categorizedChildren?.other?.length > 0) {
       for (const possiblePlan of categorizedChildren.other) {
@@ -478,10 +459,10 @@ function parseIaaSProducts(infrastructure: CatalogEntry[]): Product[] {
                 if (deployment.pricingChildren) {
                   for (const pricing of deployment.pricingChildren) {
                     const results = collectPriceComponents(
-                      iaas,
+                      entry,
                       plan,
                       pricing,
-                      'iaas'
+                      productFamily || entry.kind
                     );
                     products.push(...results);
                   }
@@ -625,7 +606,7 @@ async function scrape(): Promise<void> {
       Authorization: `Bearer ${await tokenManager.getToken()}`,
     },
   });
-  
+
   config.logger.info('Fetching Service products...');
 
   const serviceEntries = await getCatalogEntries(axiosClient, {
@@ -639,12 +620,9 @@ async function scrape(): Promise<void> {
       saasResults.push(tree);
     }
   }
-  await writeFile(saasFileName, JSON.stringify(saasResults, null, 2));
+  await writeFile(saasDataFileName, JSON.stringify(saasResults, null, 2));
   const saasProducts = parseProducts(saasResults);
-  await writeFile(
-    'ibm-saas-products.json',
-    JSON.stringify(saasProducts, null, 2)
-  );
+  await writeFile(saasProductFileName, JSON.stringify(saasProducts, null, 2));
 
   config.logger.info('Fetching Infrastructure products...');
 
@@ -660,12 +638,9 @@ async function scrape(): Promise<void> {
     }
   }
 
-  await writeFile(iaasFileName, JSON.stringify(iaasResults, null, 2));
-  const iaasProducts = parseIaaSProducts(iaasResults);
-  await writeFile(
-    'ibm-iaas-products.json',
-    JSON.stringify(iaasProducts, null, 2)
-  );
+  await writeFile(iaasDataFileName, JSON.stringify(iaasResults, null, 2));
+  const iaasProducts = parseProducts(iaasResults);
+  await writeFile(iaasProductFileName, JSON.stringify(iaasProducts, null, 2));
 
   await upsertProducts(saasProducts);
   await upsertProducts(iaasProducts);
