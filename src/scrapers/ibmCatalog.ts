@@ -15,6 +15,10 @@ const saasFileName = `data/ibm-catalog-saas.json`;
 const iaasFileName = `data/ibm-catalog-iaas.json`;
 const baseURL = 'https://globalcatalog.cloud.ibm.com/api/v1';
 
+const skipList = [
+  'containers-kubernetes', // To be scraped with the Kubernetes API
+];
+
 type RecursiveNonNullable<T> = {
   [K in keyof T]-?: RecursiveNonNullable<NonNullable<T[K]>>;
 };
@@ -451,38 +455,47 @@ function parseProducts(services: CatalogEntry[]): Product[] {
 function parseIaaSProducts(infrastructure: CatalogEntry[]): Product[] {
   const products: Product[] = [];
   for (const iaas of infrastructure) {
-    if (iaas.children) {
-      if (iaas.group) {
-        const productsOfGroup = parseIaaSProducts(iaas.children);
-        products.push(...productsOfGroup);
-      } else {
-        for (const plan of iaas.children) {
-          const walkPlan = (plan: CatalogEntry) => {
-            if (plan.kind === 'plan') {
-              if (plan.children) {
-                for (const deployment of plan.children) {
-                  if (deployment.pricingChildren) {
-                    for (const pricing of deployment.pricingChildren) {
-                      const results = collectPriceComponents(
-                        iaas,
-                        plan,
-                        pricing,
-                        'iaas'
-                      );
-                      products.push(...results);
-                    }
+    const categorizedChildren = iaas?.children?.reduce(
+      (acc: { iaas: CatalogEntry[]; other: CatalogEntry[] }, child) => {
+        if (child.kind === 'iaas' || child.kind === 'service') {
+          acc.iaas.push(child);
+        } else {
+          acc.other.push(child);
+        }
+        return acc;
+      },
+      { iaas: [], other: [] }
+    );
+    if (categorizedChildren?.iaas?.length > 0) {
+      products.push(...parseIaaSProducts(categorizedChildren.iaas));
+    }
+    if (categorizedChildren?.other?.length > 0) {
+      for (const possiblePlan of categorizedChildren.other) {
+        const walkPlan = (plan: CatalogEntry) => {
+          if (plan.kind === 'plan') {
+            if (plan.children) {
+              for (const deployment of plan.children) {
+                if (deployment.pricingChildren) {
+                  for (const pricing of deployment.pricingChildren) {
+                    const results = collectPriceComponents(
+                      iaas,
+                      plan,
+                      pricing,
+                      'iaas'
+                    );
+                    products.push(...results);
                   }
-                  if (deployment.children) {
-                    for (const child of deployment.children) {
-                      walkPlan(child);
-                    }
+                }
+                if (deployment.children) {
+                  for (const child of deployment.children) {
+                    walkPlan(child);
                   }
                 }
               }
             }
-          };
-          walkPlan(plan);
-        }
+          }
+        };
+        walkPlan(possiblePlan);
       }
     }
   }
@@ -612,7 +625,7 @@ async function scrape(): Promise<void> {
       Authorization: `Bearer ${await tokenManager.getToken()}`,
     },
   });
-
+  
   config.logger.info('Fetching Service products...');
 
   const serviceEntries = await getCatalogEntries(axiosClient, {
@@ -620,7 +633,7 @@ async function scrape(): Promise<void> {
   });
 
   for (const service of serviceEntries) {
-    if (service.kind === 'service') {
+    if (service.kind === 'service' && !skipList.includes(service.name)) {
       config.logger.info(`Scraping pricing for ${service.name}`);
       const tree = await fetchPricingForProduct(axiosClient, service);
       saasResults.push(tree);
@@ -640,7 +653,7 @@ async function scrape(): Promise<void> {
   });
 
   for (const infra of infrastructureEntries) {
-    if (infra.kind === 'iaas') {
+    if (infra.kind === 'iaas' && !skipList.includes(infra.name)) {
       config.logger.info(`Scraping pricing for ${infra.name}`);
       const tree = await fetchPricingForProduct(axiosClient, infra);
       iaasResults.push(tree);
