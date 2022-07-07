@@ -5,6 +5,8 @@ import awsSpot from '../scrapers/awsSpot';
 import azureRetail from '../scrapers/azureRetail';
 import gcpCatalog from '../scrapers/gcpCatalog';
 import gcpMachineTypes from '../scrapers/gcpMachineTypes';
+import ibmKubernetes from '../scrapers/ibmKubernetes';
+import ibmCatalog from '../scrapers/ibmCatalog';
 import { setPriceUpdateFailed, setPriceUpdateSuccessful } from '../stats/stats';
 
 interface ScraperConfig {
@@ -25,12 +27,16 @@ const Scrapers = {
     catalog: gcpCatalog.scrape,
     machineTypes: gcpMachineTypes.scrape,
   },
+  ibm: {
+    kubernetes: ibmKubernetes.scrape,
+    catalog: ibmCatalog.scrape,
+  },
 };
 
 async function run(): Promise<void> {
   const { argv } = yargs
     .usage(
-      'Usage: $0 --only=[aws:bulk,aws:spot,azure:retail,gcp:catalog,gcp:machineTypes]'
+      'Usage: $0 --only=[aws:bulk,aws:spot,azure:retail,gcp:catalog,gcp:machineTypes,ibm:kubernetes,ibm:catalog]'
     )
     .options({
       only: { type: 'string' },
@@ -65,7 +71,11 @@ async function run(): Promise<void> {
     try {
       await scraperConfig.scraperFunc();
     } catch (err) {
-      config.logger.error(err);
+      if(err instanceof Error) {
+        config.logger.error(err.message);
+      } else {
+        config.logger.error(err);
+      }
       success = false;
     }
   }

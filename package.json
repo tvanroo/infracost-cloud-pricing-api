@@ -38,6 +38,7 @@
   "dependencies": {
     "@graphql-tools/schema": "^8.3.2",
     "@graphql-tools/utils": "^8.6.9",
+    "@ibm-cloud/platform-services": "^0.24.1",
     "apollo-server-core": "^3.4.1",
     "apollo-server-express": "^3.6.7",
     "apollo-server-plugin-base": "^3.5.1",

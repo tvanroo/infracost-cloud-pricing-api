@@ -25,4 +25,8 @@ export type Price = {
   termPurchaseOption?: string;
   termOfferingClass?: string;
   description?: string;
+  tierModel?: string,
+  country?: string,
+  currency?: string,
+  partNumber?: string,
 };
