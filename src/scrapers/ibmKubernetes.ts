@@ -249,7 +249,7 @@ function parseIbmProduct(productJson: ibmProductJson): Product {
     -${productJson.country}
     -${productJson.currency}
     -${productJson.flavor}-${productJson.operating_system}
-    -${productJson?.ocp_included ? 'ocp' : ''}`,
+    ${productJson?.ocp_included ? '-ocp' : ''}`,
     vendorName,
     region: productJson.region,
     service: serviceId,
