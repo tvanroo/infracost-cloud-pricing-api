@@ -1,22 +1,31 @@
 import GlobalCatalogV1, {
   PricingGet,
 } from '@ibm-cloud/platform-services/global-catalog/v1';
-import { IamAuthenticator } from '@ibm-cloud/platform-services/auth';
+import { IamTokenManager } from '@ibm-cloud/platform-services/auth';
 import { writeFile } from 'fs/promises';
 import _ from 'lodash';
+import axios, { AxiosInstance } from 'axios';
 
 import type { Product, Price } from '../db/types';
 import { generateProductHash } from '../db/helpers';
 import { upsertProducts } from '../db/upsert';
 import config from '../config';
 
-const client = GlobalCatalogV1.newInstance({
-  authenticator: new IamAuthenticator({
-    apikey: config.ibmCloudApiKey as string,
-  }),
-});
+const saasDataFileName = `data/ibm-catalog-saas.json`;
+const saasProductFileName = `data/ibm-catalog-saas-products.json`;
 
-const filename = `data/ibm-catalog.json`;
+const iaasDataFileName = `data/ibm-catalog-iaas.json`;
+const iaasProductFileName = `data/ibm-catalog-iaas-products.json`;
+
+const baseURL = 'https://globalcatalog.cloud.ibm.com/api/v1';
+
+const skipList = [
+  'containers-kubernetes', // To be scraped with the Kubernetes API
+];
+
+type RecursiveNonNullable<T> = {
+  [K in keyof T]-?: RecursiveNonNullable<NonNullable<T[K]>>;
+};
 
 type CatalogEntry = GlobalCatalogV1.CatalogEntry & {
   children: CatalogEntry[];
@@ -54,6 +63,7 @@ type AmountsAndMetrics = {
   amounts?: AmountsRecord;
   metrics?: MetricsRecord;
 };
+
 type PricingMetaData = AmountsAndMetrics & {
   type: string;
   region: string;
@@ -95,19 +105,6 @@ export type ibmAttributes = {
   region?: string;
 };
 
-type Kinds = 'service' | 'plan' | 'deployment' | 'iaas' | 'pricing';
-
-const globalCatalogHierarchy: { [K in Kinds]?: Kinds } = {
-  service: 'plan',
-  plan: 'deployment',
-  deployment: 'pricing',
-  iaas: 'iaas',
-};
-
-type RecursiveNonNullable<T> = {
-  [K in keyof T]-?: RecursiveNonNullable<NonNullable<T[K]>>;
-};
-
 /**
  * Flattens the tree of pricing info for a plan, as each plan can describe multiple charge models (Metric).
  * A charge model describes the pricing model (tier), the unit, a quantity, and the part number to charge against.
@@ -145,10 +142,7 @@ function parsePricingJson(
   let amountAndMetrics: AmountsAndMetrics = { amounts: {}, metrics: {} };
   if (metrics?.length) {
     amountAndMetrics = metrics.reduce(
-      (
-        collection,
-        metric: GlobalCatalogV1.Metrics
-      ): AmountsAndMetrics => {
+      (collection, metric: GlobalCatalogV1.Metrics): AmountsAndMetrics => {
         const {
           metric_id: metricId,
           amounts,
@@ -165,38 +159,38 @@ function parsePricingJson(
         if (!metricId) {
           return collection;
         }
-        
+
         if (!collection.metrics) {
           return collection;
         }
         // eslint-disable-next-line no-param-reassign
-          collection.metrics[metricId] = {
-            tierModel,
-            chargeUnitName,
-            chargeUnit,
-            chargeUnitQty,
-            usageCapQty,
-            displayCap,
-            effectiveFrom,
-            effectiveUntil,
-          };
-          amounts?.forEach((amount) => {
-            if (amount?.prices?.length && amount?.country && amount?.currency) {
-              const key = `${amount.country}-${amount.currency}`;
-              if(!collection.amounts) {
-                return;
-              }
-              if (collection.amounts[key]) {
-                // eslint-disable-next-line no-param-reassign
-                collection.amounts[key][metricId] = amount.prices as GCPrice[];
-              } else {
-                // eslint-disable-next-line no-param-reassign
-                collection.amounts[key] = {
-                  [metricId]: amount.prices as GCPrice[],
-                };
-              }
+        collection.metrics[metricId] = {
+          tierModel,
+          chargeUnitName,
+          chargeUnit,
+          chargeUnitQty,
+          usageCapQty,
+          displayCap,
+          effectiveFrom,
+          effectiveUntil,
+        };
+        amounts?.forEach((amount) => {
+          if (amount?.prices?.length && amount?.country && amount?.currency) {
+            const key = `${amount.country}-${amount.currency}`;
+            if (!collection.amounts) {
+              return;
             }
-          });
+            if (collection.amounts[key]) {
+              // eslint-disable-next-line no-param-reassign
+              collection.amounts[key][metricId] = amount.prices as GCPrice[];
+            } else {
+              // eslint-disable-next-line no-param-reassign
+              collection.amounts[key] = {
+                [metricId]: amount.prices as GCPrice[],
+              };
+            }
+          }
+        });
         return collection;
       },
       amountAndMetrics
@@ -212,18 +206,6 @@ function parsePricingJson(
     region,
   };
 }
-
-// q: 'kind:service active:true price:paygo',
-const serviceParams = {
-  q: 'kind:service active:true',
-  include: 'id:geo_tags:kind:name:pricing_tags',
-};
-
-const infrastuctureQuery = {
-  q: 'kind:iaas active:true',
-  limit: 5,
-  include: 'id:geo_tags:kind:name:pricing_tags',
-};
 
 /**
  * Price Mapping:
@@ -336,11 +318,86 @@ function getAttributes(
   return attributes;
 }
 
+function collectPriceComponents(
+  product: CatalogEntry,
+  plan: CatalogEntry,
+  pricing: PricingGet,
+  productFamily: string
+): Product[] {
+  const products: Product[] = [];
+  // for now, only grab USA, USD pricing
+  const country = 'USA';
+  const currency = 'USD';
+  const processedPricing = parsePricingJson(pricing);
+  if (!processedPricing) {
+    return products;
+  }
+  const prices = getPrices(processedPricing, country, currency);
+  const attributes = getAttributes(processedPricing, plan.name);
+  const region = attributes?.region || country;
+
+  if (prices?.length) {
+    const p = {
+      productHash: ``,
+      sku: `${product.name}-${plan.name}`,
+      vendorName: 'ibm',
+      region,
+      service: product.name,
+      productFamily,
+      attributes,
+      prices,
+    };
+    p.productHash = generateProductHash(p);
+    products.push(p);
+  }
+  return products;
+}
+
 /**
+ * SaaS grouping
+ *
+ * service (group) - optional
+ *  |
+ *  |
+ *  | 0..n
+ *   - - - > service
+ *           |
+ *           |
+ *           | 0..n
+ *            - - - > plan -> pricing might be here too, if not region specific
+ *                   |
+ *                   |
+ *                   | 0..n
+ *                    - - - > deployment -> pricing might be here, if deployment specific <- pricing on previous level will be returned here too
+ *
+ *  IaaS grouping
+ *
+ *  iaas (group) - optional
+ *  |
+ *  |
+ *  | 0..n
+ *   - - - > iaas
+ *           |
+ *           |
+ *           | 0..n
+ *            - - - > plan - possibly priced (for satellite i.e cos satellite plan)
+ *                    |
+ *                    |
+ *                    | 0..n
+ *                     - - - > deployment - possibly  priced
+ *                             |
+ *                             |
+ *                             | 0..n
+ *                              - - - > plan - possibly priced
+ *                                      |
+ *                         s             |
+ *                                      | 0..n
+ *                                       - - - > deployment - possibly priced
+ *
  * Global Catalog is an hierarchy of things, of which we are interested in 'services' and 'iaas' kinds on the root.
  *
  * Root:
- * | service
+ * | xaas
  *   - plans []
  *     - deployments [] (by region)
  *       - region
@@ -353,8 +410,7 @@ function getAttributes(
  *         - unit
  *         - effective dates
  *
- *  | iaas
- *    -
+ *
  *
  * Product Mapping:
  * DB:             | CatalogJson:
@@ -364,59 +420,88 @@ function getAttributes(
  * vendorName:     | 'ibm'
  * region:         | PricingMetaData.region || country
  * service:        | serviceName
- * productFamily:  | 'service'
+ * productFamily:  | 'service' || 'iaas'
  * attributes:     | ibmAttributes
  * prices:         | Price[]
  *
- * @param services
+ * @param entries
+ * @param productFamily
  * @returns
  */
-function parseProducts(services: CatalogEntry[]): Product[] {
+function parseProducts(
+  entries: CatalogEntry[],
+  productFamily?: string
+): Product[] {
   const products: Product[] = [];
-  // for now, only grab USA, USD pricing
-  const country = 'USA';
-  const currency = 'USD';
-  for (const service of services) {
-    if (service.children) {
-      for (const plan of service.children) {
-        if (plan.children) {
-          for (const deployment of plan.children) {
-            if (deployment.pricingChildren) {
-              for (const pricing of deployment.pricingChildren) {
-                const processedPricing = parsePricingJson(pricing);
-                if (!processedPricing) {
-                  continue;
+  for (const entry of entries) {
+    const categorizedChildren = entry?.children?.reduce(
+      (acc: { xaas: CatalogEntry[]; other: CatalogEntry[] }, child) => {
+        if (child.kind === 'iaas' || child.kind === 'service') {
+          acc.xaas.push(child);
+        } else {
+          acc.other.push(child);
+        }
+        return acc;
+      },
+      { xaas: [], other: [] }
+    );
+    if (categorizedChildren?.xaas?.length > 0) {
+      products.push(
+        ...parseProducts(categorizedChildren.xaas, productFamily || entry.kind)
+      );
+    }
+    if (categorizedChildren?.other?.length > 0) {
+      for (const possiblePlan of categorizedChildren.other) {
+        const walkPlan = (plan: CatalogEntry) => {
+          if (plan.kind === 'plan') {
+            if (plan.children) {
+              for (const deployment of plan.children) {
+                if (deployment.pricingChildren) {
+                  for (const pricing of deployment.pricingChildren) {
+                    const results = collectPriceComponents(
+                      entry,
+                      plan,
+                      pricing,
+                      productFamily || entry.kind
+                    );
+                    products.push(...results);
+                  }
                 }
-                const prices = getPrices(processedPricing, country, currency);
-                const attributes = getAttributes(processedPricing, plan.name);
-                const region = attributes?.region || country;
-
-                if (prices?.length) {
-                  const p = {
-                    productHash: ``,
-                    sku: `${service.name}-${plan.name}`,
-                    vendorName: 'ibm',
-                    region,
-                    service: service.name,
-                    productFamily: 'service',
-                    attributes,
-                    prices,
-                  };
-                  p.productHash = generateProductHash(p);
-                  products.push(p);
+                if (deployment.children) {
+                  for (const child of deployment.children) {
+                    walkPlan(child);
+                  }
                 }
               }
             }
           }
-        }
+        };
+        walkPlan(possiblePlan);
       }
     }
   }
   return products;
 }
 
+// q: 'kind:service active:true price:paygo',
+const serviceParams = {
+  q: 'kind:service active:true',
+  include: 'id:geo_tags:kind:name:pricing_tags:tags',
+  account: 'global',
+};
+
+const infrastuctureParams = {
+  q: 'kind:iaas active:true',
+  include: 'id:geo_tags:kind:name:pricing_tags:tags',
+  account: 'global',
+};
+
 async function getCatalogEntries(
-  globalCatalog: GlobalCatalogV1
+  axiosClient: AxiosInstance,
+  params: Pick<
+    GlobalCatalogV1.ListCatalogEntriesParams,
+    'account' | 'q' | 'include'
+  >
 ): Promise<GlobalCatalogV1.CatalogEntry[]> {
   const limit = 200;
   let offset = 0;
@@ -424,17 +509,20 @@ async function getCatalogEntries(
   const servicesArray = [];
 
   while (next) {
-    const response = await globalCatalog.listCatalogEntries({
-      q: 'kind:service active:true',
-      include: 'id:geo_tags:kind:name:pricing_tags',
-      account: 'global',
-      limit,
-      offset,
+    const { data: response } = await axiosClient.get<{
+      count: number;
+      resources: CatalogEntry[];
+    }>('/', {
+      params: {
+        ...params,
+        _limit: limit,
+        _offset: offset,
+      },
     });
-    if (response.result?.resources?.length) {
-      servicesArray.push(...response.result.resources);
+    if (response.resources?.length) {
+      servicesArray.push(...response.resources);
     }
-    if (!response.result.count || offset > response.result.count) {
+    if (!response.count || offset > response.count) {
       next = false;
     }
     offset += limit;
@@ -442,57 +530,122 @@ async function getCatalogEntries(
   return servicesArray;
 }
 
-async function scrape(): Promise<void> {
-  config.logger.info(`Started IBM Cloud scraping at ${new Date()}`);
-  const results: CatalogEntry[] = [];
-  const serviceEntries = await getCatalogEntries(client);
-  for (const service of serviceEntries) {
-    config.logger.info(`Scraping pricing for ${service.name}`);
-    const serviceEntryTree = (
-      await client.getCatalogEntry({
-        id: service.id as string,
-        depth: 3,
-        include: 'children:kind:tags:geo_tags:pricing_tags:name',
-      })
-    ).result as CatalogEntry;
-    if (serviceEntryTree.children) {
-      for (const plan of serviceEntryTree.children) {
-        if (plan.children) {
-          const chunks = _.chunk(plan.children, 5);
-          for (const deployments of chunks) {
-            await Promise.all(
-              deployments.map(async (deployment): Promise<void> => {
-                try {
-                  const pricingObject = (
-                    await client.getChildObjects({
-                      id: deployment.id as string,
-                      kind: 'pricing',
-                    })
-                  ).result as PricingGet;
-                  if (!pricingObject) {
-                    return;
-                  }
-                  // eslint-disable-next-line no-param-reassign
-                  deployment.pricingChildren = [pricingObject];
-                } catch (e) {
-                  if(e instanceof Error) {
-                    config.logger.error(e.message);
-                  } else {
-                    config.logger.error(e);
-                  }
+async function fetchPricingForProduct(
+  axiosClient: AxiosInstance,
+  product: GlobalCatalogV1.CatalogEntry
+): Promise<CatalogEntry> {
+  const { data: tree } = await axiosClient.get<CatalogEntry>(
+    `/${product.id as string}`,
+    {
+      params: {
+        noLocations: true,
+        depth: 10,
+        include: 'id:kind:name:tags:pricing_tags:geo_tags:meatadata',
+      },
+    }
+  );
+  const stack = [tree];
+  while (stack.length > 0) {
+    // Couldn't get here if the were no elems on the stack
+    const currentElem = stack.pop() as CatalogEntry;
+    // For example satellite located deployments area also priced on the plan level
+    if (currentElem.kind === 'plan' && currentElem.children) {
+      const deploymentChildren = currentElem.children.filter(
+        (child) => child.kind === 'deployment'
+      );
+      const chunks = _.chunk(deploymentChildren, 8);
+      for (const elements of chunks) {
+        await Promise.all(
+          elements.map(async (element): Promise<void> => {
+            try {
+              const { data: pricingObject } = await axiosClient.get<PricingGet>(
+                `/${element.id}/pricing`
+              );
+              if (!pricingObject) {
+                return;
+              }
+              // eslint-disable-next-line no-param-reassign
+              element.pricingChildren = [pricingObject];
+            } catch (e) {
+              if (axios.isAxiosError(e)) {
+                if (!e?.response?.status || e?.response?.status !== 404) {
+                  config.logger.error(e.message);
                 }
-              })
-            );
-          }
-        }
+              } else if (e instanceof Error) {
+                config.logger.error(e.message);
+              } else {
+                config.logger.error(e);
+              }
+            }
+          })
+        );
       }
     }
-    results.push(serviceEntryTree);
+    if (currentElem.children && currentElem.children.length > 0) {
+      for (const child of currentElem.children) {
+        stack.push(child);
+      }
+    }
   }
-  await writeFile(filename, JSON.stringify(results, null, 2));
-  const products = parseProducts(results);
-  await writeFile('products2.json', JSON.stringify(products, null, 2));
-  await upsertProducts(products);
+  return tree;
+}
+
+async function scrape(): Promise<void> {
+  config.logger.info(`Started IBM Cloud scraping at ${new Date()}`);
+  const saasResults: CatalogEntry[] = [];
+  const iaasResults: CatalogEntry[] = [];
+
+  const tokenManager = new IamTokenManager({
+    apikey: config.ibmCloudApiKey as string,
+  });
+
+  // We won't need token refreshing
+  const axiosClient = axios.create({
+    baseURL,
+    headers: {
+      Authorization: `Bearer ${await tokenManager.getToken()}`,
+    },
+  });
+
+  config.logger.info('Fetching Service products...');
+
+  const serviceEntries = await getCatalogEntries(axiosClient, {
+    ...serviceParams,
+  });
+
+  for (const service of serviceEntries) {
+    if (service.kind === 'service' && !skipList.includes(service.name)) {
+      config.logger.info(`Scraping pricing for ${service.name}`);
+      const tree = await fetchPricingForProduct(axiosClient, service);
+      saasResults.push(tree);
+    }
+  }
+
+  await writeFile(saasDataFileName, JSON.stringify(saasResults, null, 2));
+  const saasProducts = parseProducts(saasResults);
+  await writeFile(saasProductFileName, JSON.stringify(saasProducts, null, 2));
+
+  config.logger.info('Fetching Infrastructure products...');
+
+  const infrastructureEntries = await getCatalogEntries(axiosClient, {
+    ...infrastuctureParams,
+  });
+
+  for (const infra of infrastructureEntries) {
+    if (infra.kind === 'iaas' && !skipList.includes(infra.name)) {
+      config.logger.info(`Scraping pricing for ${infra.name}`);
+      const tree = await fetchPricingForProduct(axiosClient, infra);
+      iaasResults.push(tree);
+    }
+  }
+
+  await writeFile(iaasDataFileName, JSON.stringify(iaasResults, null, 2));
+  const iaasProducts = parseProducts(iaasResults);
+  await writeFile(iaasProductFileName, JSON.stringify(iaasProducts, null, 2));
+
+  await upsertProducts(saasProducts);
+  await upsertProducts(iaasProducts);
+
   config.logger.info(`Ended IBM Cloud scraping at ${new Date()}`);
 }
 
