@@ -1,4 +1,3 @@
-
 import fs from 'fs';
 import axios, { AxiosResponse } from 'axios';
 import type { Product, Price } from '../db/types';
@@ -67,11 +66,9 @@ export type ibmKubernetesAttributes = {
   country?: string;
 };
 
-
 async function scrape(): Promise<void> {
   await downloadAll();
   await loadAll();
-  
 }
 
 function sleep(ms: number) {
@@ -94,17 +91,15 @@ async function downloadAll(): Promise<void> {
       resp = await axios({
         method: 'get',
         url: `${baseUrl}/prices/?platform=all&country=USA`,
-        headers: { 
-          referer: 'https://cloud.ibm.com'
-        }
+        headers: {
+          referer: 'https://cloud.ibm.com',
+        },
       });
       success = true;
     } catch (err) {
       // Too many requests, sleep and retry
       if (err.response.status === 429) {
-        config.logger.info(
-          'Too many requests, sleeping for 30s and retrying'
-        );
+        config.logger.info('Too many requests, sleeping for 30s and retrying');
         await sleep(RETRY_DELAY_MS);
       } else {
         throw err;
@@ -120,25 +115,27 @@ async function downloadAll(): Promise<void> {
         return;
       }
       writer.write(JSON.stringify(resp.data), resolve);
-    })
+    });
     writer.close();
-  
   } catch (writeErr) {
-    config.logger.error(
-      `Skipping IBM instances due to error ${writeErr}.`
-    );
+    config.logger.error(`Skipping IBM instances due to error ${writeErr}.`);
   }
 }
 
 /**
  * tiers from the pricing api don't specify a start usage amount (only an end amount);
  * they are inferred based on the previous tier's end amount. this helper is used to populate
- * an appropriate start amount threshold 
+ * an appropriate start amount threshold
  */
-function getStartUsageAmount(productJson: ibmProductJson, tierJson: ibmTiersJson, prevTierJson: ibmTiersJson): string {
+function getStartUsageAmount(
+  productJson: ibmProductJson,
+  tierJson: ibmTiersJson,
+  prevTierJson: ibmTiersJson
+): string {
   if (productJson.min_quantity) return productJson.min_quantity.toString();
   if (tierJson.instance_hours) {
-    if (prevTierJson?.instance_hours) return (prevTierJson.instance_hours).toString();
+    if (prevTierJson?.instance_hours)
+      return prevTierJson.instance_hours.toString();
     return '0';
   }
   return '';
@@ -146,21 +143,25 @@ function getStartUsageAmount(productJson: ibmProductJson, tierJson: ibmTiersJson
 
 /**
  * for the last tier (in a multi-tier), set end threshold to 'Inf' instead of 9999999990 or 999999999
- * @param productJson 
- * @param tierJson 
- * @param prevTierJson 
- * @returns 
+ * @param productJson
+ * @param tierJson
+ * @param prevTierJson
+ * @returns
  */
- function getEndUsageAmount(productJson: ibmProductJson, tierJson: ibmTiersJson): string {
+function getEndUsageAmount(
+  productJson: ibmProductJson,
+  tierJson: ibmTiersJson
+): string {
   if (productJson.max_quantity) return productJson.max_quantity.toString();
   if (tierJson.instance_hours) {
-    if (tierJson.instance_hours.toString().match(lastThresholdAmountPattern)) return lastThresholdAmount;
+    if (tierJson.instance_hours.toString().match(lastThresholdAmountPattern))
+      return lastThresholdAmount;
     return tierJson.instance_hours.toString();
   }
   return '';
 }
 
-/** 
+/**
  * Price Mapping:
  * DB Price:           | ibmProductJson & ibmTiersJson:
  * ------------------- | -------------------------
@@ -184,8 +185,8 @@ function parsePrices(product: Product, productJson: ibmProductJson): Price[] {
 
   const numTiers = productJson.tiers.length;
   for (let i = 0; i < numTiers; i++) {
-    const tierJson = productJson.tiers[i]
-    const prevTierJson = (i-1 >= 0) ? productJson.tiers[i-1] : {price: 0};
+    const tierJson = productJson.tiers[i];
+    const prevTierJson = i - 1 >= 0 ? productJson.tiers[i - 1] : { price: 0 };
     const price: Price = {
       priceHash: '',
       purchaseOption: '',
@@ -194,7 +195,11 @@ function parsePrices(product: Product, productJson: ibmProductJson): Price[] {
       USD: tierJson.price?.toString(),
       effectiveDateStart: productJson.effective_from || '',
       effectiveDateEnd: productJson.effective_until || '',
-      startUsageAmount: getStartUsageAmount(productJson, tierJson, prevTierJson),
+      startUsageAmount: getStartUsageAmount(
+        productJson,
+        tierJson,
+        prevTierJson
+      ),
       endUsageAmount: getEndUsageAmount(productJson, tierJson),
       termLength: productJson.contract_duration,
     };
@@ -205,7 +210,7 @@ function parsePrices(product: Product, productJson: ibmProductJson): Price[] {
   }
 
   return prices;
-};
+}
 
 function parseAttributes(productJson: ibmProductJson): ibmKubernetesAttributes {
   const attributes: ibmKubernetesAttributes = {
@@ -222,14 +227,14 @@ function parseAttributes(productJson: ibmProductJson): ibmKubernetesAttributes {
   };
 
   return attributes;
-};
+}
 
 /**
  * Product Mapping:
  * DB:             | ibmProductJson:
  * --------------- | -----------------
  * productHash:    | md5(vendorName + region + sku);
- * sku:            | plan_id - country - currency - flavor - operating_system 
+ * sku:            | plan_id - country - currency - flavor - operating_system
  * vendorName:     | 'ibm'
  * region:         | region
  * service:        | 'containers-kubernetes'
@@ -240,7 +245,11 @@ function parseAttributes(productJson: ibmProductJson): ibmKubernetesAttributes {
 function parseIbmProduct(productJson: ibmProductJson): Product {
   const product: Product = {
     productHash: '',
-    sku: `${productJson.plan_id}-${productJson.country}-${productJson.currency}-${productJson.flavor}-${productJson.operating_system}`,
+    sku: `${productJson.plan_id}
+    -${productJson.country}
+    -${productJson.currency}
+    -${productJson.flavor}-${productJson.operating_system}
+    ${productJson?.ocp_included ? '-ocp' : ''}`,
     vendorName,
     region: productJson.region,
     service: serviceId,
@@ -266,16 +275,16 @@ async function loadAll(): Promise<void> {
     const body = fs.readFileSync(filename);
     const sample = body.toString();
     const json = <productGroupJson>JSON.parse(sample);
-  
+
     const products: Product[] = [];
-  
+
     Object.values(json).forEach((productGroup) => {
       productGroup.forEach((ibmProduct) => {
         if (!isDeprecated(ibmProduct)) {
           const product = parseIbmProduct(ibmProduct);
           products.push(product);
         }
-      })
+      });
     });
     await upsertProducts(products);
   } catch (e) {
