@@ -245,11 +245,7 @@ function parseAttributes(productJson: ibmProductJson): ibmKubernetesAttributes {
 function parseIbmProduct(productJson: ibmProductJson): Product {
   const product: Product = {
     productHash: '',
-    sku: `${productJson.plan_id}
-    -${productJson.country}
-    -${productJson.currency}
-    -${productJson.flavor}-${productJson.operating_system}
-    ${productJson?.ocp_included ? '-ocp' : ''}`,
+    sku: `${productJson.plan_id}-${productJson.country}-${productJson.currency}-${productJson.flavor}-${productJson.operating_system}-${productJson?.ocp_included ? 'ocp' : 'noocp'}`,
     vendorName,
     region: productJson.region,
     service: serviceId,
