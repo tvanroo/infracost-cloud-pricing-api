@@ -7,7 +7,7 @@ The Cloud Pricing API is a GraphQL-based API that includes all public prices fro
 ## Usage
 
 Infracost runs a hosted version of this API that you can use if you prefer that:
-1. Register for an API key by [downloading infracost](https://www.infracost.io/docs/#quick-start) and running `infracost register`.
+1. Register for an API key by [downloading infracost](https://www.infracost.io/docs/#quick-start) and running `infracost auth login`.
 2. If you'd like to use the API independently, pass the above API key using the `X-Api-Key: xxxx` HTTP header when calling [https://pricing.api.infracost.io/graphql](https://pricing.api.infracost.io/graphql). The following example `curl` fetches the latest price for an AWS EC2 m3.large instance in us-east-1. More examples can be found in `./examples/queries`.
 
     **Example request**:
@@ -70,7 +70,7 @@ See [our Helm Chart](https://github.com/infracost/helm-charts/tree/master/charts
 2. Use the [Infracost CLI](https://github.com/infracost/infracost/blob/master/README.md#quick-start) to get an API key so your self-hosted Cloud Pricing API can download the latest pricing data from us:
 
     ```sh
-    infracost register
+    infracost auth login
     ```
     The key is saved in `~/.config/infracost/credentials.yml`.
 

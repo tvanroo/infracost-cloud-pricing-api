@@ -15,7 +15,7 @@
 2. Use the [Infracost CLI](https://github.com/infracost/infracost/blob/master/README.md#quick-start) to get an API key so your self-hosted Cloud Pricing API can download the latest pricing data from us:
 
    ```sh
-   infracost register
+   infracost auth login
    ```
 
    The key is saved in `~/.config/infracost/credentials.yml`.
