@@ -18,7 +18,7 @@ async function run() {
   if (!config.infracostAPIKey) {
     config.logger.error('Please set INFRACOST_API_KEY.');
     config.logger.error(
-      'A new key can be obtained by installing the infracost CLI and running "infracost register".  The key is usually saved in ~/.config/infracost/credentials.yml'
+      'A new key can be obtained by installing the infracost CLI and running "infracost auth login".  The key is usually saved in ~/.config/infracost/credentials.yml'
     );
     process.exit(1);
   }
@@ -39,7 +39,7 @@ async function run() {
         'You do not have permission to download data. Please set a valid INFRACOST_API_KEY.'
       );
       config.logger.error(
-        'A new key can be obtained by installing the infracost CLI and running "infracost register".  The key is usually saved in ~/.config/infracost/credentials.yml'
+        'A new key can be obtained by installing the infracost CLI and running "infracost auth login".  The key is usually saved in ~/.config/infracost/credentials.yml'
       );
     } else {
       config.logger.error(`There was an error downloading data: ${e.message}`);
