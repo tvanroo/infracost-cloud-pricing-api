@@ -7,27 +7,31 @@ import path from 'path';
 import { Logger } from 'pino';
 import config from './config';
 import ApolloLogger from './utils/apolloLogger';
-import resolvers from './resolvers';
+import getResolvers from './resolvers';
 import typeDefs from './typeDefs';
 import health from './health';
 import auth from './auth';
 import events from './events';
 import stats from './stats';
 import home from './home';
+import { Product } from './db/types';
 
-type ApplicationOptions = {
+export type ApplicationOptions<TContext> = {
   apolloConfigOverrides?: ApolloServerExpressConfig;
   disableRequestLogging?: boolean;
   disableStats?: boolean;
   disableAuth?: boolean;
   logger?: Logger;
+  convertProducts?(context: TContext, products: Product[]): Promise<Product[]>;
 };
 
 interface ResponseError extends Error {
   status?: number;
 }
 
-async function createApp(opts: ApplicationOptions = {}): Promise<Application> {
+async function createApp<TContext>(
+  opts: ApplicationOptions<TContext> = {}
+): Promise<Application> {
   const app = express();
 
   const logger = opts.logger || config.logger;
@@ -90,7 +94,7 @@ async function createApp(opts: ApplicationOptions = {}): Promise<Application> {
   const apolloConfig: ApolloServerExpressConfig = {
     schema: makeExecutableSchema({
       typeDefs,
-      resolvers,
+      resolvers: getResolvers<TContext>(opts),
     }),
     introspection: true,
     plugins: [
