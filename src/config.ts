@@ -39,6 +39,13 @@ async function pg(): Promise<Pool> {
           'postgresql://postgres:@localhost:5432/cloud_pricing',
       };
     }
+    // support for cloud hosted postgres db's which provide self-signed certs for TLS connections
+    if (process.env.POSTGRES_CERTIFICATE_BASE64) {
+      const cert = Buffer.from(process.env.POSTGRES_CERTIFICATE_BASE64, 'base64')?.toString('utf8')
+      poolConfig.ssl = {
+        ca: cert
+      };
+    }
 
     pgPool = new Pool(poolConfig);
   }
