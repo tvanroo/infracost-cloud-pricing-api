@@ -1,6 +1,6 @@
 {
   "name": "cloud-pricing-api",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "Cloud Pricing API",
   "main": "dist/server.js",
   "scripts": {
