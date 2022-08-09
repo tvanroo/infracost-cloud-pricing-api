@@ -190,7 +190,7 @@ async function calculateAmountFromTotal(
 
   let descRegex = new RegExp(`^${desc}`);
   if (purchaseOption === 'preemptible') {
-    descRegex = new RegExp(`^Preemptible ${desc}`);
+    descRegex = new RegExp(`^Spot Preemptible ${desc}`);
   }
 
   const matchedProduct = await findComputeProducts(product.region, descRegex);
@@ -226,8 +226,8 @@ async function calculateAmountFromCpuAndMem(
   let cpuDescRegex = new RegExp(`^${cpuDesc}`);
   let memDescRegex = new RegExp(`^${memDesc}`);
   if (purchaseOption === 'preemptible') {
-    cpuDescRegex = new RegExp(`^Preemptible ${cpuDesc}`);
-    memDescRegex = new RegExp(`^Preemptible ${memDesc}`);
+    cpuDescRegex = new RegExp(`^Spot Preemptible ${cpuDesc}`);
+    memDescRegex = new RegExp(`^Spot Preemptible ${memDesc}`);
   }
 
   const cpuProduct = await findComputeProducts(product.region, cpuDescRegex);
