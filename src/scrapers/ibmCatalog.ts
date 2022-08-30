@@ -591,8 +591,14 @@ async function scrape(): Promise<void> {
   const saasResults: CatalogEntry[] = [];
   const iaasResults: CatalogEntry[] = [];
 
+  const apikey = config.ibmCloudApiKey;
+
+  if (typeof apikey !== 'string' || apikey.trim().length === 0) {
+    throw new Error('No IBM_CLOUD_API_KEY provided!');
+  }
+
   const tokenManager = new IamTokenManager({
-    apikey: config.ibmCloudApiKey as string,
+    apikey,
   });
 
   // We won't need token refreshing
