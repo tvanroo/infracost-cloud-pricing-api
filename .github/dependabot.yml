@@ -4,8 +4,6 @@ updates:
     directory: "/"
     schedule:
       interval: monthly
-    commit-message:
-      prefix: "gha:"
     reviewers:
       - infracost/engineering
     labels:
