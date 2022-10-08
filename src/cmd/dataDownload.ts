@@ -5,13 +5,13 @@ import yargs from 'yargs';
 import config from '../config';
 
 async function run() {
-  const { argv } = yargs
+  const argv = await yargs
     .usage(
       'Usage: $0 --out=[output file, default: ./data/products/products.csv.gz ]'
     )
     .options({
       out: { type: 'string', default: './data/products/products.csv.gz' },
-    });
+    }).argv;
 
   let latestResp: AxiosResponse<{ downloadUrl: string }>;
 
