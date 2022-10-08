@@ -41,7 +41,7 @@
     "apollo-server-core": "^3.10.2",
     "apollo-server-express": "^3.6.7",
     "apollo-server-plugin-base": "^3.5.1",
-    "async-mutex": "^0.3.2",
+    "async-mutex": "^0.4.0",
     "axios": "^0.27.2",
     "decimal.js": "^10.4.1",
     "dotenv": "^16.0.3",
