@@ -57,10 +57,17 @@ function generateGcpKeyFile(): string {
   return tmpFile.name;
 }
 
-const logger = pino({
+const loggerOpts: pino.LoggerOptions = {
   level: process.env.LOG_LEVEL || 'info',
-  prettyPrint: process.env.NODE_ENV !== 'production',
-});
+};
+
+if (process.env.NODE_ENV !== 'production') {
+  loggerOpts.transport = {
+    target: 'pino-pretty',
+  };
+}
+
+const logger = pino(loggerOpts);
 
 const cache = new NodeCache();
 

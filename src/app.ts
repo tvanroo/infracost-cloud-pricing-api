@@ -40,14 +40,14 @@ async function createApp<TContext>(
     app.use(
       pinoHttp({
         logger,
-        customLogLevel(res, err) {
+        customLogLevel(_req, res, err) {
           if (err || res.statusCode === 500) {
             return 'error';
           }
           return 'info';
         },
         autoLogging: {
-          ignorePaths: ['/health'],
+          ignore: (req) => req.url === '/health',
         },
       })
     );
