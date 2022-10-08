@@ -101,6 +101,7 @@ async function createApp<TContext>(
       ApolloServerPluginLandingPageGraphQLPlayground(),
       () => new ApolloLogger(logger),
     ],
+    cache: 'bounded',
     ...opts.apolloConfigOverrides,
   };
 
