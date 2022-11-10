@@ -74,7 +74,7 @@
     "@types/pg-copy-streams": "^1.2.1",
     "@types/pg-format": "^1.0.2",
     "@types/pino-http": "^5.8.1",
-    "@types/prettier": "^2.7.0",
+    "@types/prettier": "^2.7.1",
     "@types/progress": "^2.0.5",
     "@types/tmp": "^0.2.1",
     "@types/yargs": "^17.0.12",
