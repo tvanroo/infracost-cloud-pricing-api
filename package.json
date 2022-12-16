@@ -68,7 +68,7 @@
     "@babel/core": "^7.19.6",
     "@babel/node": "^7.19.1",
     "@types/glob": "^8.0.0",
-    "@types/lodash": "^4.14.186",
+    "@types/lodash": "^4.14.191",
     "@types/node": "^18.11.8",
     "@types/pg": "^8.6.5",
     "@types/pg-copy-streams": "^1.2.1",
