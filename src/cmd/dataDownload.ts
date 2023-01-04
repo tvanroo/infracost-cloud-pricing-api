@@ -65,7 +65,7 @@ async function run() {
             complete: '=',
             incomplete: ' ',
             renderThrottle: 500,
-            total: parseInt(resp.headers['content-length'], 10),
+            total: parseInt(resp.headers['content-length'] || '0', 10),
           }
         );
 
