@@ -59,7 +59,7 @@
     "pino": "8.7.0",
     "pino-http": "^8.2.1",
     "pino-pretty": "^9.1.1",
-    "prettier": "^2.7.1",
+    "prettier": "^2.8.1",
     "progress": "^2.0.3",
     "tmp": "^0.2.1",
     "yargs": "^17.5.1"
@@ -74,7 +74,7 @@
     "@types/pg-copy-streams": "^1.2.1",
     "@types/pg-format": "^1.0.2",
     "@types/pino-http": "^5.8.1",
-    "@types/prettier": "^2.7.1",
+    "@types/prettier": "^2.7.2",
     "@types/progress": "^2.0.5",
     "@types/tmp": "^0.2.1",
     "@types/yargs": "^17.0.12",
