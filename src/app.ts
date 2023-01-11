@@ -87,12 +87,20 @@ async function createApp(opts: ApplicationOptions = {}): Promise<Application> {
     app.use(stats);
   }
 
+  // Big query objects with large keys or too many fields could trip this check
+  app.use((req, _, next) => {
+    const query = req.query.query || req.body.query || '';
+    if (query.length > 2000) {
+      throw new Error('Query too large');
+    }
+    next();
+  });
+
   const apolloConfig: ApolloServerExpressConfig = {
     schema: makeExecutableSchema({
       typeDefs,
       resolvers,
     }),
-    introspection: true,
     plugins: [
       ApolloServerPluginLandingPageGraphQLPlayground(),
       () => new ApolloLogger(logger),
