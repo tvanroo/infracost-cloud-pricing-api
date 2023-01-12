@@ -34,13 +34,13 @@ const Scrapers = {
 };
 
 async function run(): Promise<void> {
-  const { argv } = yargs
+  const argv = await yargs
     .usage(
       'Usage: $0 --only=[aws:bulk,aws:spot,azure:retail,gcp:catalog,gcp:machineTypes,ibm:kubernetes,ibm:catalog]'
     )
     .options({
       only: { type: 'string' },
-    });
+    }).argv;
 
   const scraperConfigs: ScraperConfig[] = [];
 

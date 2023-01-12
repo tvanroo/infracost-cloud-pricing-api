@@ -20,13 +20,13 @@ import { setPriceUpdateFailed, setPriceUpdateSuccessful } from '../stats/stats';
 async function run(): Promise<void> {
   const pool = await config.pg();
 
-  const { argv } = yargs
+  const argv = await yargs
     .usage(
       'Usage: $0 --path=[ location of *.csv.gz files, default: ./data/products ]'
     )
     .options({
       path: { type: 'string', default: './data/products' },
-    });
+    }).argv;
 
   const client = await pool.connect();
   try {
@@ -98,9 +98,9 @@ async function loadFile(client: PoolClient, filename: string): Promise<void> {
   const pgCopy = client.query(
     copyFrom(`
     COPY "ProductLoad" FROM STDIN WITH (
-      FORMAT csv, 
-      HEADER true, 
-      DELIMITER ',', 
+      FORMAT csv,
+      HEADER true,
+      DELIMITER ',',
       FORCE_NOT_NULL ("productFamily")
     )`)
   );
