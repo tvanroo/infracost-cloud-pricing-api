@@ -9,13 +9,13 @@ import format from 'pg-format';
 import config from '../config';
 
 async function run(): Promise<void> {
-  const { argv } = yargs
+  const argv = await yargs
     .usage(
       'Usage: $0 --out=[output file, default: ./data/products/products.csv.gz ]'
     )
     .options({
       out: { type: 'string', default: './data/products/products.csv.gz' },
-    });
+    }).argv;
 
   const pool = await config.pg();
   const client = await pool.connect();

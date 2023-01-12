@@ -3,6 +3,7 @@ import mingo from 'mingo';
 import { Price, Product } from './db/types';
 import currency, { CURRENCY_CODES } from './utils/currency';
 import { findProducts } from './db/query';
+import { ApplicationOptions } from './app';
 
 const productLimit = 1000;
 
@@ -38,14 +39,26 @@ function strToRegex(str: string): RegExp {
   return new RegExp(pattern, options);
 }
 
-const resolvers: IResolvers = {
+const getResolvers = <TContext>(
+  ops: ApplicationOptions<TContext>
+): IResolvers => ({
   Query: {
     products: async (
       _parent: unknown,
-      args: ProductsArgs
+      args: ProductsArgs,
+      context: TContext
     ): Promise<Product[]> => {
       const { attributeFilters, ...otherFilters } = args.filter;
-      return findProducts(otherFilters, attributeFilters, productLimit);
+      const products = await findProducts(
+        otherFilters,
+        attributeFilters,
+        productLimit
+      );
+      if (ops.convertProducts) {
+        return ops.convertProducts(context, products);
+      }
+
+      return products;
     },
   },
   Product: {
@@ -61,6 +74,7 @@ const resolvers: IResolvers = {
         .find(product.prices, transformFilter(args.filter))
         .all() as Price[];
       await convertCurrencies(prices);
+
       return prices;
     },
   },
@@ -73,7 +87,7 @@ const resolvers: IResolvers = {
           currency.convert('USD', code, Number(price.USD)),
       ])
     ),
-};
+});
 
 function transformFilter(filter: Filter): MongoDbFilter {
   const transformed: MongoDbFilter = {};
@@ -110,4 +124,4 @@ async function convertCurrencies(prices: Price[]) {
   }
 }
 
-export default resolvers;
+export default getResolvers;

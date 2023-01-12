@@ -86,7 +86,7 @@ async function loadEc2(jsonData: SpotJson) {
           config.logger.warn(
             `SKIPPING: could not find an existing products for ${region}, ${instanceType}, ${operatingSystem}`
           );
-          return;
+          continue;
         }
 
         for (const product of products) {
