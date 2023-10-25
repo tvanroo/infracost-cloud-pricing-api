@@ -51,7 +51,7 @@
     "express": "^4.18.2",
     "glob": "^8.0.3",
     "googleapis": "^110.0.0",
-    "graphql": "^16.6.0",
+    "graphql": "^16.8.1",
     "lodash": "^4.17.21",
     "mingo": "^6.1.2",
     "node-cache": "^5.1.2",
