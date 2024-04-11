@@ -33,7 +33,7 @@ async function run() {
         },
       }
     );
-  } catch (e) {
+  } catch (e: any) {
     if (e.response?.status === 403) {
       config.logger.error(
         'You do not have permission to download data. Please set a valid INFRACOST_API_KEY.'

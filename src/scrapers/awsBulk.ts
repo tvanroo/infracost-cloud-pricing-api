@@ -164,7 +164,7 @@ async function loadAll(): Promise<void> {
     config.logger.info(`Processing file: ${filename}`);
     try {
       await processFile(filename);
-    } catch (e) {
+    } catch (e: any) {
       config.logger.error(`Skipping file ${filename} due to error ${e}`);
       config.logger.error(e.stack);
     }

@@ -96,7 +96,7 @@ async function downloadAll(): Promise<void> {
         },
       });
       success = true;
-    } catch (err) {
+    } catch (err: any) {
       // Too many requests, sleep and retry
       if (err.response.status === 429) {
         config.logger.info('Too many requests, sleeping for 30s and retrying');
@@ -283,7 +283,7 @@ async function loadAll(): Promise<void> {
       });
     });
     await upsertProducts(products);
-  } catch (e) {
+  } catch (e: any) {
     config.logger.error(`Skipping file ${filename} due to error ${e}`);
     config.logger.error(e.stack);
   }
