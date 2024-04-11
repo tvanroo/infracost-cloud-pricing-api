@@ -59,7 +59,7 @@ async function downloadAll(): Promise<void> {
   for (const service of services) {
     try {
       await downloadService(service);
-    } catch (e) {
+    } catch (e: any) {
       config.logger.error(
         `Skipping service ${service.displayName} due to error ${e}`
       );
@@ -109,7 +109,7 @@ async function downloadService(service: ServiceJson): Promise<void> {
           responseType: 'stream',
         });
         success = true;
-      } catch (err) {
+      } catch (err: any) {
         // Too many requests, sleep and retry
         if (err.response.status === 429) {
           config.logger.info(
@@ -155,7 +155,7 @@ async function loadAll(): Promise<void> {
     config.logger.info(`Processing file: ${filename}`);
     try {
       await processFile(filename);
-    } catch (e) {
+    } catch (e: any) {
       config.logger.error(`Skipping file ${filename} due to error ${e}`);
       config.logger.error(e.stack);
     }

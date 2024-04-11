@@ -89,7 +89,7 @@ async function loadAll(): Promise<void> {
   for (const filename of glob.sync('data/az-retail-page-*.json')) {
     try {
       await processFile(filename);
-    } catch (e) {
+    } catch (e: any) {
       config.logger.error(`Skipping file ${filename} due to error ${e}`);
       config.logger.error(e.stack);
     }
