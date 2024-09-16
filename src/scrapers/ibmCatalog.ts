@@ -11,16 +11,23 @@ import { generateProductHash } from '../db/helpers';
 import { upsertProducts } from '../db/upsert';
 import config from '../config';
 
-const saasDataFileName = `data/ibm-catalog-saas.json`;
+const DEBUG = false;
 const saasProductFileName = `data/ibm-catalog-saas-products.json`;
-
-const iaasDataFileName = `data/ibm-catalog-iaas.json`;
 const iaasProductFileName = `data/ibm-catalog-iaas-products.json`;
+const platformProductFileName = `data/ibm-catalog-platform-products.json`;
+const compositeProductFileName = `data/ibm-catalog-composite-products.json`;
 
 const baseURL = 'https://globalcatalog.cloud.ibm.com/api/v1';
 
 const skipList = [
   'containers-kubernetes', // To be scraped with the Kubernetes API
+];
+
+// Composite services that shouldn't be scraped, as they're not really products
+const compositeSkipList = [
+  'billing',
+  'context-based-restrictions',
+  'iam-access-management'
 ];
 
 type RecursiveNonNullable<T> = {
@@ -390,7 +397,22 @@ function collectPriceComponents(
  *                                      | 0..n
  *                                       - - - > deployment - possibly priced
  *
- * Global Catalog is an hierarchy of things, of which we are interested in 'services' and 'iaas' kinds on the root.
+ *  Composite grouping
+ *  
+ *  There is currently 1 composite service in the catalog that has plans directly contained as children within it: power-iaas.
+ * 
+ *  composite
+ *  |
+ *  |
+ *   - - - > service
+ *  |
+ *  | 0..n
+ *   - - - > plan
+ *           |
+ *           | 0..n
+ *            - - - > deployment -> pricing might be here
+ *   
+ * Global Catalog is an hierarchy of things, of which we are interested in 'services' and 'iaas' and 'composite' kinds on the root.
  *
  * Root:
  * | xaas
@@ -498,6 +520,12 @@ const platformServiceParams = {
   account: 'global',
 };
 
+const compositeServiceParams = {
+  q: 'kind:composite active:true',
+  include: 'id:geo_tags:kind:name:pricing_tags:tags',
+  account: 'global',
+};
+
 async function getCatalogEntries(
   axiosClient: AxiosInstance,
   params: Pick<
@@ -542,7 +570,7 @@ async function fetchPricingForProduct(
       params: {
         noLocations: true,
         depth: 10,
-        include: 'id:kind:name:tags:pricing_tags:geo_tags:meatadata',
+        include: 'id:kind:name:tags:pricing_tags:geo_tags:metadata',
       },
     }
   );
@@ -568,7 +596,7 @@ async function fetchPricingForProduct(
               }
               // eslint-disable-next-line no-param-reassign
               element.pricingChildren = [pricingObject];
-            } catch (e) {
+            } catch (e: any) {
               if (axios.isAxiosError(e)) {
                 if (!e?.response?.status || e?.response?.status !== 404) {
                   config.logger.error(e.message);
@@ -597,8 +625,10 @@ async function scrape(): Promise<void> {
   const saasResults: CatalogEntry[] = [];
   const iaasResults: CatalogEntry[] = [];
   const psResults: CatalogEntry[] = [];
+  const compositeResults: CatalogEntry[] = [];
 
   const apikey = config.ibmCloudApiKey;
+  var dataString;
 
   if (typeof apikey !== 'string' || apikey.trim().length === 0) {
     throw new Error('No IBM_CLOUD_API_KEY provided!');
@@ -631,6 +661,10 @@ async function scrape(): Promise<void> {
   }
 
   const saasProducts = parseProducts(saasResults);
+  if (DEBUG) {
+    dataString = JSON.stringify(saasProducts);
+    await writeFile(saasProductFileName, dataString);  
+  }
 
   config.logger.info('Fetching Infrastructure products...');
 
@@ -647,7 +681,12 @@ async function scrape(): Promise<void> {
   }
 
   const iaasProducts = parseProducts(iaasResults);
+  if (DEBUG) {
+    dataString = JSON.stringify(iaasProducts);
+    await writeFile(iaasProductFileName, dataString);  
+  }
 
+  
   config.logger.info('Fetching Platform Service products...');
 
   const platformServiceEntries = await getCatalogEntries(axiosClient, {
@@ -663,10 +702,35 @@ async function scrape(): Promise<void> {
   }
 
   const psProducts = parseProducts(psResults, 'service');
+  if (DEBUG) {
+    dataString = JSON.stringify(psProducts);
+    await writeFile(platformProductFileName, dataString);  
+  }
+
+  config.logger.info('Fetching Composite products...');
+
+  const compositeServiceEntries = await getCatalogEntries(axiosClient, {
+    ...compositeServiceParams,
+  });
+
+  for (const service of compositeServiceEntries) {
+    if (!compositeSkipList.includes(service.name)) {
+      config.logger.info(`Scraping pricing for ${service.name}`);
+      const tree = await fetchPricingForProduct(axiosClient, service);
+      compositeResults.push(tree);
+    }
+  }
+
+  const compositeProducts = parseProducts(compositeResults);
+  if (DEBUG) {
+    dataString = JSON.stringify(compositeProducts);
+    await writeFile(compositeProductFileName, dataString);
+  }
 
   await upsertProducts(saasProducts);
   await upsertProducts(iaasProducts);
   await upsertProducts(psProducts);
+  await upsertProducts(compositeProducts);
 
   config.logger.info(`Ended IBM Cloud scraping at ${new Date()}`);
 }
