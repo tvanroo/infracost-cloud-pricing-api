@@ -6,6 +6,7 @@ const batchSize = 1000;
 
 async function upsertProducts(products: Product[]): Promise<void> {
   const pool = await config.pg();
+  config.logger.info(`Upserting ${products.length} products`);
 
   const insertSql = format(
     `INSERT INTO %I ("productHash", "sku", "vendorName", "region", "service", "productFamily", "attributes", "prices") VALUES `,
