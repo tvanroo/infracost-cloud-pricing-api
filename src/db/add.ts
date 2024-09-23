@@ -14,6 +14,8 @@ async function addProducts(products: Product[]): Promise<void> {
     config.productTableName
   );
 
+  // On a conflict on the product hash (vendorName + region + service + plan_id), then take the new sku, vendorName, region, service, productFamily, attributes, prices
+  // Note: 'excluded' table refers to new values
   const onConflictSql = format(
     ` 
 	  ON CONFLICT ("productHash") DO UPDATE SET
@@ -23,7 +25,7 @@ async function addProducts(products: Product[]): Promise<void> {
 	  "service" = excluded."service",
 	  "productFamily" = excluded."productFamily",
 	  "attributes" = excluded."attributes",
-	  "prices" = %I."prices" || excluded."prices"        
+	  "prices" = excluded."prices"
 	  `,
     config.productTableName
   );
@@ -48,7 +50,11 @@ async function addProducts(products: Product[]): Promise<void> {
     // Prices are stored as { pricesHash: prices[] } so we can update/merge them using the postgres jsonb concatenation
     const pricesMap: { [priceHash: string]: Price[] } = {};
     product.prices.forEach((price) => {
-      pricesMap[price.priceHash] = [price];
+      if (pricesMap[price.priceHash]) {
+        pricesMap[price.priceHash].push(price);
+      } else {
+        pricesMap[price.priceHash] = [price];
+      }
     });
 
     productHashToInsertRow.set(
@@ -76,4 +82,4 @@ async function addProducts(products: Product[]): Promise<void> {
   }
 }
 
-export { addProducts };
+export default addProducts;
