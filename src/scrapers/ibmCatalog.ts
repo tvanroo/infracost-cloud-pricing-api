@@ -9,6 +9,7 @@ import axios, { AxiosInstance } from 'axios';
 import type { Product, Price } from '../db/types';
 import { generateProductHash } from '../db/helpers';
 import { upsertProducts } from '../db/upsert';
+import { addProducts } from '../db/add';
 import config from '../config';
 
 const DEBUG = false;
@@ -721,16 +722,17 @@ async function scrape(): Promise<void> {
     }
   }
 
-  const compositeProducts = parseProducts(compositeResults);
+  const compositeProducts = parseProducts(compositeResults, 'service');
+
   if (DEBUG) {
     dataString = JSON.stringify(compositeProducts);
     await writeFile(compositeProductFileName, dataString);
   }
 
-  await upsertProducts(saasProducts);
-  await upsertProducts(iaasProducts);
-  await upsertProducts(psProducts);
-  await upsertProducts(compositeProducts);
+  await addProducts(saasProducts);
+  await addProducts(iaasProducts);
+  await addProducts(psProducts);
+  await addProducts(compositeProducts);
 
   config.logger.info(`Ended IBM Cloud scraping at ${new Date()}`);
 }
