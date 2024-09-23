@@ -8,8 +8,7 @@ import axios, { AxiosInstance } from 'axios';
 
 import type { Product, Price } from '../db/types';
 import { generateProductHash } from '../db/helpers';
-import { upsertProducts } from '../db/upsert';
-import { addProducts } from '../db/add';
+import addProducts from '../db/add';
 import config from '../config';
 
 const DEBUG = false;
