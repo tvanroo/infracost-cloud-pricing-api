@@ -3,9 +3,10 @@
 import prettier from 'prettier';
 import {
   ApolloServerPlugin,
+  BaseContext,
   GraphQLRequestContext,
   GraphQLRequestListener,
-} from 'apollo-server-plugin-base';
+} from '@apollo/server';
 import { Logger } from 'pino';
 
 const DEFAULT_TRUNCATE_LENGTH = 4096;
@@ -25,10 +26,10 @@ export default class ApolloLogger implements ApolloServerPlugin {
   constructor(private logger: Logger) {}
 
   async requestDidStart(
-    requestContext: GraphQLRequestContext
-  ): Promise<GraphQLRequestListener> {
+    requestContext: GraphQLRequestContext<BaseContext>
+  ): Promise<GraphQLRequestListener<BaseContext>> {
     const { logger } = this;
-    const logProps = requestContext.context.logProps || {};
+    const logProps = requestContext.contextValue || {};
 
     if (requestContext.request.query?.startsWith('query IntrospectionQuery')) {
       return {};
@@ -55,16 +56,16 @@ export default class ApolloLogger implements ApolloServerPlugin {
 
     return {
       async didEncounterErrors(
-        requestContext: GraphQLRequestContext
+        requestContext: GraphQLRequestContext<BaseContext>
       ): Promise<void> {
         const errors = truncate(JSON.stringify(requestContext.errors));
         logger.error(logProps, `GraphQL encountered errors:\n${errors}`);
       },
       async willSendResponse(
-        requestContext: GraphQLRequestContext
+        requestContext: GraphQLRequestContext<BaseContext>
       ): Promise<void> {
         const respData = truncate(
-          JSON.stringify(requestContext.response?.data)
+          JSON.stringify(requestContext.response.body)
         );
         logger.debug(logProps, `GraphQL request completed:\n${respData}`);
       },
