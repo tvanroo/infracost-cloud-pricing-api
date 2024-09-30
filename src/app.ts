@@ -3,8 +3,6 @@ import { ApolloServer, ApolloServerOptions, BaseContext } from '@apollo/server';
 import { expressMiddleware } from '@apollo/server/express4';
 import { ApolloServerPluginLandingPageDisabled } from '@apollo/server/plugin/disabled';
 import { ApolloServerErrorCode } from '@apollo/server/errors';
-// import { ApolloServerExpressConfig, ValidationError } from 'apollo-server-express';
-// import { ApolloServerPluginLandingPageDisabled } from 'apollo-server-core';
 import { makeExecutableSchema } from '@graphql-tools/schema';
 import { GraphQLError, GraphQLFormattedError } from 'graphql';
 import pinoHttp from 'pino-http';
@@ -134,34 +132,17 @@ async function createApp<TContext>(
     return resp;
   };
   
-  // const apolloConfig: ApolloServerOptions<MyContext> = {
-  //   typeDefs,
-  //   resolvers: getResolvers<TContext>(opts),
-  //   plugins: [ApolloServerPluginLandingPageDisabled()],
-  //   // schema: makeExecutableSchema({
-  //   //   typeDefs,
-  //   //   resolvers: getResolvers<TContext>(opts),
-  //   // }),
-  //   introspection: false,
-  //   csrfPrevention: true,
-  //   // plugins: [
-  //   //   ApolloServerPluginLandingPageDisabled(),
-  //   // ],
-  //   cache: "bounded",
-  //   ...opts.apolloConfigOverrides,
-  // };
-
   const apolloConfig: ApolloServerOptions<BaseContext> = {
     schema: makeExecutableSchema({
       typeDefs,
       resolvers: getResolvers<TContext>(opts),
     }),
     introspection: false,
-    // csrfPrevention: true,
     plugins: [
       ApolloServerPluginLandingPageDisabled(),
     ],
     cache: "bounded",
+    allowBatchedHttpRequests: true,
     ...opts.apolloConfigOverrides,
   };
 
@@ -177,8 +158,6 @@ async function createApp<TContext>(
     express.json(),
     expressMiddleware(apollo),
   );
-
-  // apollo.applyMiddleware({ app });
 
   return app;
 }
