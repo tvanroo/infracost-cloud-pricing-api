@@ -1,10 +1,14 @@
 import express, { Application, Request, Response, NextFunction } from 'express';
-import { ApolloServer, ApolloServerExpressConfig } from 'apollo-server-express';
-import { ApolloServerPluginLandingPageGraphQLPlayground } from 'apollo-server-core';
+import { ApolloServer, ApolloServerOptions, BaseContext } from '@apollo/server';
+import { expressMiddleware } from '@apollo/server/express4';
+import { ApolloServerPluginLandingPageDisabled } from '@apollo/server/plugin/disabled';
+import { ApolloServerErrorCode } from '@apollo/server/errors';
 import { makeExecutableSchema } from '@graphql-tools/schema';
+import { GraphQLError, GraphQLFormattedError } from 'graphql';
 import pinoHttp from 'pino-http';
 import path from 'path';
 import { Logger } from 'pino';
+import cors from 'cors';
 import config from './config';
 import ApolloLogger from './utils/apolloLogger';
 import getResolvers from './resolvers';
@@ -17,7 +21,7 @@ import home from './home';
 import { Product } from './db/types';
 
 export type ApplicationOptions<TContext> = {
-  apolloConfigOverrides?: ApolloServerExpressConfig;
+  apolloConfigOverrides?: ApolloServer;
   disableRequestLogging?: boolean;
   disableStats?: boolean;
   disableAuth?: boolean;
@@ -34,12 +38,19 @@ async function createApp<TContext>(
 ): Promise<Application> {
   const app = express();
 
+  app.get('/liveness', (req, res) => {
+    res.sendStatus(200);
+  });
+
+  app.get('/readiness', (req, res) => {
+    res.sendStatus(200);
+  });
+
   const logger = opts.logger || config.logger;
 
   if (!opts.disableRequestLogging) {
     app.use(
       pinoHttp({
-        logger,
         customLogLevel(_req, res, err) {
           if (err || res.statusCode === 500) {
             return 'error';
@@ -49,6 +60,9 @@ async function createApp<TContext>(
         autoLogging: {
           ignore: (req) => req.url === '/health',
         },
+        redact: {
+          paths: ['req.headers["x-api-key"]']
+        }
       })
     );
   }
@@ -91,24 +105,59 @@ async function createApp<TContext>(
     app.use(stats);
   }
 
-  const apolloConfig: ApolloServerExpressConfig = {
+    // Big query objects with large keys or too many fields could trip this check
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      const query = req.query.query || req.body.query || '';
+      if (query.length > 2000) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Query too large'
+        })
+      } else {
+        next();
+      }
+    });
+
+  const errorFormatter = (formattedError: GraphQLFormattedError, err: unknown): GraphQLFormattedError => {
+    const resp: GraphQLFormattedError = {
+      message: formattedError.message
+    };
+    if (formattedError.extensions?.code === ApolloServerErrorCode.GRAPHQL_VALIDATION_FAILED) {
+      throw new GraphQLError("Invalid Request", {
+        extensions: {
+          code: 'GRAPHQL_VALIDATION_FAILED'
+        }
+      })
+    }
+    return resp;
+  };
+  
+  const apolloConfig: ApolloServerOptions<BaseContext> = {
     schema: makeExecutableSchema({
       typeDefs,
       resolvers: getResolvers<TContext>(opts),
     }),
-    introspection: true,
+    introspection: false,
     plugins: [
-      ApolloServerPluginLandingPageGraphQLPlayground(),
-      () => new ApolloLogger(logger),
+      ApolloServerPluginLandingPageDisabled(),
     ],
-    cache: 'bounded',
+    cache: "bounded",
+    allowBatchedHttpRequests: true,
     ...opts.apolloConfigOverrides,
   };
 
+  apolloConfig.formatError = errorFormatter
+
   const apollo = new ApolloServer(apolloConfig);
+  apollo.addPlugin(new ApolloLogger(logger));
   await apollo.start();
 
-  apollo.applyMiddleware({ app });
+  app.use(
+    '/graphql',
+    cors<cors.CorsRequest>(),
+    express.json(),
+    expressMiddleware(apollo),
+  );
 
   return app;
 }
