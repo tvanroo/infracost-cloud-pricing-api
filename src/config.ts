@@ -20,15 +20,83 @@ createPaths.forEach((path) => {
   }
 });
 
+interface CredentialHost {
+  hostname: string;
+  port: number;
+}
+interface Credentials {
+  connection: {
+    postgres: {
+      authentication: {
+        method: string;
+        password: string;
+        username: string;
+      };
+      certificate: {
+        certificate_authority: string;
+        certificate_base64: string;
+        name: string;
+      };
+      composed: Array<string>;
+      database: string;
+      hosts: Array<CredentialHost>;
+      path: string;
+      query_options: {
+        sslmode: string;
+      };
+      scheme: string;
+      type: string;
+    }
+  };
+  instance_administration_api: {
+    deployment_id: string;
+    instance_id: string;
+    root: string;
+  }
+}
+
+const jsonPgCredentials = process.env.POSTGRES_CREDENTIALS;
+
 let pgPool: Pool;
+let user: string;
+const database = process.env.POSTGRES_DB || 'cloud_pricing';
+let password: string;
+let host: string;
+let port: number;
+let cert64: string | undefined;
+
 async function pg(): Promise<Pool> {
   if (!pgPool) {
+    let pgCredentials: Credentials
+    if (jsonPgCredentials) {
+      try {
+        pgCredentials = JSON.parse(jsonPgCredentials);
+        user = pgCredentials?.connection.postgres.authentication.username;
+        password = pgCredentials?.connection.postgres.authentication.password;
+        host = pgCredentials?.connection.postgres.hosts[0].hostname;
+        port = pgCredentials?.connection.postgres.hosts[0].port;
+        cert64 = pgCredentials?.connection.postgres.certificate.certificate_base64;
+      } catch (error: unknown) {
+        let message = 'Unknown Error'
+        if (error instanceof Error) message = error.message
+        logger.error(`Error parsing POSTGRES_CREDENTIALS ${message}`)
+      }
+
+    } else {
+      logger.warn(`Error POSTGRES_CREDENTIALS are missing`)
+      user = process.env.POSTGRES_USER || 'postgres'; 
+      password = process.env.POSTGRES_PASSWORD || '';
+      host = process.env.POSTGRES_HOST || 'localhost';
+      port = Number(process.env.POSTGRES_PORT) || 5432;
+      cert64 = process.env.POSTGRES_CERTIFICATE_BASE64;
+    }
+
     let poolConfig: PoolConfig = {
-      user: process.env.POSTGRES_USER || 'postgres',
-      database: process.env.POSTGRES_DB || 'cloud_pricing',
-      password: process.env.POSTGRES_PASSWORD || '',
-      port: Number(process.env.POSTGRES_PORT) || 5432,
-      host: process.env.POSTGRES_HOST || 'localhost',
+      user,
+      database,
+      password,
+      port,
+      host,
       max: Number(process.env.POSTGRES_MAX_CLIENTS) || 10,
     };
 
@@ -40,8 +108,8 @@ async function pg(): Promise<Pool> {
       };
     }
     // support for cloud hosted postgres db's which provide self-signed certs for TLS connections
-    if (process.env.POSTGRES_CERTIFICATE_BASE64) {
-      const cert = Buffer.from(process.env.POSTGRES_CERTIFICATE_BASE64, 'base64')?.toString('utf8')
+    if (cert64) {
+      const cert = Buffer.from(cert64, 'base64')?.toString('utf8')
       poolConfig.ssl = {
         ca: cert
       };
@@ -101,6 +169,8 @@ const config = {
   gcpKeyFile: generateGcpKeyFile(),
   gcpProject: process.env.GCP_PROJECT,
   ibmCloudApiKey: process.env.IBM_CLOUD_API_KEY,
+  region: process.env.CLOUD_REGION || 'local',
+  hostname: process.env.HOSTNAME || 'local'
 };
 
 export default config;
