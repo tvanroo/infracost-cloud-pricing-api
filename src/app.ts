@@ -16,20 +16,14 @@ import health from './health';
 import auth from './auth';
 import home from './home';
 import { Product } from './db/types';
-import domain from 'domain';
+import { ErrorHandler } from './utils/errorHandler';
 
-const d = domain.create();
-d.on("error", (error) => {
-  const log = {
-    errorno: error?.errorno,
-    code: error?.code,
-    host: error?.client?.host,
-    port: error?.client?.port
-  }
-  config.logger.error("Connection error", log);
-  process.exit(1);
-})
-d.enter();
+// Initialize error handler
+const errorHandler = new ErrorHandler({
+  exitOnUncaught: false
+});
+
+errorHandler.init();
 
 export type ApplicationOptions<TContext> = {
   apolloConfigOverrides?: ApolloServer;
