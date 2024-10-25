@@ -14,10 +14,22 @@ import getResolvers from './resolvers';
 import typeDefs from './typeDefs';
 import health from './health';
 import auth from './auth';
-import events from './events';
-import stats from './stats';
 import home from './home';
 import { Product } from './db/types';
+import domain from 'domain';
+
+const d = domain.create();
+d.on("error", (error) => {
+  const log = {
+    errorno: error?.errorno,
+    code: error?.code,
+    host: error?.client?.host,
+    port: error?.client?.port
+  }
+  config.logger.error("Connection error", log);
+  process.exit(1);
+})
+d.enter();
 
 export type ApplicationOptions<TContext> = {
   apolloConfigOverrides?: ApolloServer;
@@ -83,8 +95,8 @@ async function createApp<TContext>(
   }
 
   if (!opts.disableStats) {
-    app.use(events);
-    app.use(stats);
+    // app.use(events);
+    // app.use(stats);
   }
 
     // Big query objects with large keys or too many fields could trip this check

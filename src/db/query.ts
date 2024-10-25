@@ -31,30 +31,37 @@ export async function findProducts(
   attributeFilters: AttributeFilter[],
   limit?: number
 ): Promise<Product[]> {
-  const pool = await config.pg();
+  try {
+    const pool = await config.pg();
 
-  const where: string[] = [];
-  Object.entries(filters).forEach((filterItem) => {
-    where.push(filterToCondition(filterItem[0], filterItem[1]));
-  });
-
-  if (attributeFilters) {
-    attributeFilters.forEach((f) => {
-      where.push(attributeFilterToCondition(f));
+    const where: string[] = [];
+    Object.entries(filters).forEach((filterItem) => {
+      where.push(filterToCondition(filterItem[0], filterItem[1]));
     });
+  
+    if (attributeFilters) {
+      attributeFilters.forEach((f) => {
+        where.push(attributeFilterToCondition(f));
+      });
+    }
+  
+    let sql = format(
+      `SELECT * FROM %I WHERE ${where.join(' AND ')}`,
+      config.productTableName
+    );
+    if (limit !== undefined) {
+      sql = format(`${sql} LIMIT %L`, limit);
+    }
+  
+    const response = await pool.query(sql).catch(e => {
+      config.logger.error(`Error waiting for response to query for product ${e}`) 
+    });
+    const products = response?.rows as ProductWithPriceMap[];
+    return products.map((product) => flattenPrices(product));  
+  } catch (err) {
+    config.logger.error(`Error trying to query for product ${err}`) 
+    return []
   }
-
-  let sql = format(
-    `SELECT * FROM %I WHERE ${where.join(' AND ')}`,
-    config.productTableName
-  );
-  if (limit !== undefined) {
-    sql = format(`${sql} LIMIT %L`, limit);
-  }
-
-  const response = await pool.query(sql);
-  const products = response.rows as ProductWithPriceMap[];
-  return products.map((product) => flattenPrices(product));
 }
 
 function strToRegex(str: string): RegExp {
