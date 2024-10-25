@@ -5,9 +5,8 @@ import { ApolloServerPluginLandingPageDisabled } from '@apollo/server/plugin/dis
 import { ApolloServerErrorCode } from '@apollo/server/errors';
 import { makeExecutableSchema } from '@graphql-tools/schema';
 import { GraphQLError, GraphQLFormattedError } from 'graphql';
-import pinoHttp from 'pino-http';
+import * as log4js from 'log4js';
 import path from 'path';
-import { Logger } from 'pino';
 import cors from 'cors';
 import config from './config';
 import ApolloLogger from './utils/apolloLogger';
@@ -25,13 +24,15 @@ export type ApplicationOptions<TContext> = {
   disableRequestLogging?: boolean;
   disableStats?: boolean;
   disableAuth?: boolean;
-  logger?: Logger;
+  logger?: log4js.Logger;
   convertProducts?(context: TContext, products: Product[]): Promise<Product[]>;
 };
 
 interface ResponseError extends Error {
   status?: number;
 }
+
+let logId: number = 0;
 
 async function createApp<TContext>(
   opts: ApplicationOptions<TContext> = {}
@@ -47,25 +48,6 @@ async function createApp<TContext>(
   });
 
   const logger = opts.logger || config.logger;
-
-  if (!opts.disableRequestLogging) {
-    app.use(
-      pinoHttp({
-        customLogLevel(_req, res, err) {
-          if (err || res.statusCode === 500) {
-            return 'error';
-          }
-          return 'info';
-        },
-        autoLogging: {
-          ignore: (req) => req.url === '/health',
-        },
-        redact: {
-          paths: ['req.headers["x-api-key"]']
-        }
-      })
-    );
-  }
 
   if (!opts.disableStats) {
     app.use(express.static(path.join(__dirname, 'public')));
@@ -152,11 +134,19 @@ async function createApp<TContext>(
   apollo.addPlugin(new ApolloLogger(logger));
   await apollo.start();
 
+  app.use(log4js.connectLogger(logger, {
+    context: true,
+    format: (req, res, format) => {
+      logId++
+      return format(`{id:${logId}, txid:${req.headers["x-transaction-id"]}, remoteAddr: ":remote-addr", method: :method, url: :url, statusCode: :status, content-length: :content-length, responseTime: ${res.responseTime}, user-agent: ":user-agent"}`)
+    }
+  }))
+
   app.use(
     '/graphql',
     cors<cors.CorsRequest>(),
     express.json(),
-    expressMiddleware(apollo),
+    expressMiddleware(apollo)
   );
 
   return app;
