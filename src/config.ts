@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-import pino from 'pino';
+import * as loggerUtils from '@console/console-platform-log4js-utils';
 import NodeCache from 'node-cache';
 import { Pool, PoolConfig } from 'pg';
 import tmp from 'tmp';
@@ -132,17 +132,7 @@ function generateGcpKeyFile(): string {
   return tmpFile.name;
 }
 
-const loggerOpts: pino.LoggerOptions = {
-  level: process.env.LOG_LEVEL || 'info',
-};
-
-if (process.env.NODE_ENV !== 'production') {
-  loggerOpts.transport = {
-    target: 'pino-pretty',
-  };
-}
-
-const logger = pino(loggerOpts);
+const logger = loggerUtils.getLogger('cloud-pricing-api');
 
 const cache = new NodeCache();
 

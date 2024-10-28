@@ -7,7 +7,7 @@ import {
   GraphQLRequestContext,
   GraphQLRequestListener,
 } from '@apollo/server';
-import { Logger } from 'pino';
+import * as log4js from 'log4js';
 
 const DEFAULT_TRUNCATE_LENGTH = 4096;
 
@@ -23,7 +23,7 @@ function truncate(str: string, l = DEFAULT_TRUNCATE_LENGTH): string {
 }
 
 export default class ApolloLogger implements ApolloServerPlugin {
-  constructor(private logger: Logger) {}
+  constructor(private logger: log4js.Logger) {}
 
   async requestDidStart(
     requestContext: GraphQLRequestContext<BaseContext>
@@ -58,8 +58,12 @@ export default class ApolloLogger implements ApolloServerPlugin {
       async didEncounterErrors(
         requestContext: GraphQLRequestContext<BaseContext>
       ): Promise<void> {
-        const errors = truncate(JSON.stringify(requestContext.errors));
-        logger.error(logProps, `GraphQL encountered errors:\n${errors}`);
+        const errorLog = {
+          txid: requestContext.request.http?.headers.get('x-transaction-id'),
+          query: requestContext.request.query,
+          error: requestContext.errors
+        };
+        logger.error(truncate(JSON.stringify(errorLog)));
       },
       async willSendResponse(
         requestContext: GraphQLRequestContext<BaseContext>
