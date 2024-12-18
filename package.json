@@ -81,7 +81,9 @@
   },
   "overrides": {
     "semver": "7.5.2",
-    "follow-redirects": "1.15.6"
+    "follow-redirects": "1.15.6",
+    "micromatch": "4.0.8",
+    "path-to-regexp": "0.1.12"
   },
   "devDependencies": {
     "@babel/core": "^7.19.6",
