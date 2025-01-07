@@ -8,8 +8,13 @@ import { PricingModels } from './ibmCatalog';
 
 // pricing api for IBM Kubernetes infrastructure
 const baseUrl = 'https://cloud.ibm.com/containers/cluster-management/api';
+// possible providers are ['vpc-gen2', 'classic']
+const PROVIDER = 'vpc-gen2'
+const REGIONS = ['jp-tok','au-syd', 'br-sao', 'ca-tor', 'eu-de', 'eu-es', 'eu-fr2', 'jp-osa', 'eu-gb', 'us-east', 'us-south'];
+// possible platforms are 'kube', 'openshift', 'addons', and 'dhost'
+const PLATFORMS = ['kube', 'openshift'];
 const dataFolder = `data/`
-const filePrefix = `ibmkube`;
+const FILE_PREFIX = `ibmkube`;
 const RETRY_DELAY_MS = 30000;
 const MAX_RETRIES = 3;
 const vendorName = 'ibm';
@@ -68,12 +73,9 @@ export type ibmKubernetesAttributes = {
   country?: string;
 };
 
-const regions = ['jp-tok','au-syd', 'br-sao', 'ca-tor', 'eu-de', 'eu-es', 'eu-fr2', 'jp-osa', 'eu-gb', 'us-east', 'us-south'];
-const platforms = ['kube', 'openshift'];
-
 async function scrape(): Promise<void> {
-  await downloadAll();
-  await loadAll();
+  await downloadAll(PROVIDER);
+  await loadAll(FILE_PREFIX);
 }
 
 function sleep(ms: number) {
@@ -82,18 +84,16 @@ function sleep(ms: number) {
   });
 }
 
-async function downloadAll(): Promise<void[]> {
-  let downloadPromises: Promise<void>[] = []
-  platforms.forEach(platform => {
-    regions.forEach(region => {
-      downloadPromises.push(download(platform, 'vpc-gen2', region))
+async function downloadAll(provider: string): Promise<void[]> {
+  const downloadPromises: Promise<void>[] = []
+  PLATFORMS.forEach(platform => {
+    REGIONS.forEach(region => {
+      downloadPromises.push(download(platform, provider, region))
     });  
   })
   return Promise.all(downloadPromises)
 }
 
-// possible providers are ['vpc-gen2', 'classic']
-// possible platforms are 'kube', 'addons', and 'dhost'
 async function download(platform: string, provider: string, region:string): Promise<void> {
   config.logger.info(`Downloading pricing ${provider}, ${region}`);
 
@@ -128,7 +128,7 @@ async function download(platform: string, provider: string, region:string): Prom
   } while (!success && attempts < MAX_RETRIES);
 
   try {
-    const filename=`${dataFolder}${filePrefix}-${provider}-${platform}-${region}.json`
+    const filename=`${dataFolder}${FILE_PREFIX}-${provider}-${platform}-${region}.json`
     const writer = fs.createWriteStream(filename);
     await new Promise((resolve, reject) => {
       if (!resp) {
@@ -289,7 +289,7 @@ function isDeprecated(productJson: ibmProductJson): boolean {
   return !!productJson?.deprecated;
 }
 
-async function load(filename: string): Promise<void> {
+function load(filename: string): Promise<void> {
   try {
     console.log(`loading ${filename}`);
 
@@ -315,12 +315,12 @@ async function load(filename: string): Promise<void> {
   }
 }
 
-async function loadAll(): Promise<void[]> {
+async function loadAll(filePrefix: string): Promise<void[]> {
   const dataFolder = './data';
-  let loadPromises: Promise<void>[] = []
+  const loadPromises: Promise<void>[] = []
 
   fs.readdirSync(dataFolder).forEach(filename => {
-    if (filename.match(/ibmkube/)) {
+    if (filename.startsWith(filePrefix)) {
       loadPromises.push(load(`${dataFolder}/${filename}`))
     }
   });
