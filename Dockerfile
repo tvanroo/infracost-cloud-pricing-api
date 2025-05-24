@@ -13,6 +13,13 @@ RUN mkdir -p node_modules/@console/console-platform-log4js-utils \
     && printf 'module.exports = { getLogger: () => console };' \
        > node_modules/@console/console-platform-log4js-utils/index.js
 
+# --- STUB MISSING LOGGER PACKAGE ---
+RUN mkdir -p node_modules/@console/console-platform-log4js-utils \
+    && printf '{ "name": "@console/console-platform-log4js-utils", "version": "4.1.0" }' \
+       > node_modules/@console/console-platform-log4js-utils/package.json \
+    && printf 'module.exports = { getLogger: () => console };' \
+       > node_modules/@console/console-platform-log4js-utils/index.js
+
 # Install dependencies (production + dev)
 RUN npm install --production \
   && cp -R node_modules prod_node_modules \
